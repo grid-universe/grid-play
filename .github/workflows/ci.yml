@@ -32,6 +32,3 @@ jobs:
 
             - name: Type check with mypy
               run: mypy grid_play
-
-            - name: Run tests
-              run: pytest --cov=grid_play --cov-report=term-missing

@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
 dependencies = [
-    "grid-universe @ git+https://github.com/rizkiarm/grid-universe.git",
+    "grid-universe @ git+https://github.com/grid-universe/grid-universe.git",
     "streamlit>=1.45.0",
     "pyrsistent>=0.20.0"
 ]
