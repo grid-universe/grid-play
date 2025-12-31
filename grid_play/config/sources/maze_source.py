@@ -23,7 +23,7 @@ from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
 from grid_universe.objectives import OBJECTIVE_FN_REGISTRY, default_objective_fn
 from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
 
-from .base import LevelSource, register_level_source
+from .base import BaseConfig, LevelSource, register_level_source
 from ..shared_ui import texture_map_section, seed_section
 
 
@@ -31,7 +31,7 @@ from ..shared_ui import texture_map_section, seed_section
 # Config Dataclass
 # -----------------------------
 @dataclass(frozen=True)
-class MazeConfig:
+class MazeConfig(BaseConfig):
     width: int
     height: int
     turn_limit: int | None
@@ -50,7 +50,6 @@ class MazeConfig:
     wall_percentage: float
     move_fn: MoveFn
     objective_fn: ObjectiveFn
-    seed: int | None
     render_texture_map: TextureMap
 
 
@@ -407,7 +406,7 @@ def build_maze_config(current: object) -> MazeConfig:
 
 def _make_env(cfg: MazeConfig) -> GridUniverseEnv:
     return GridUniverseEnv(
-        render_mode="texture",
+        render_mode="rgb_array",
         initial_state_fn=generate,
         **dataclasses.asdict(cfg),
     )

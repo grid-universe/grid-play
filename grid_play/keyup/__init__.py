@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Any, Optional
 import streamlit.components.v1 as components
 
 script_dir: str = os.path.dirname(os.path.realpath(__file__))
@@ -15,7 +15,7 @@ def keyup(
     key: Optional[str] = None,
     auto_clear: bool = True,
     clear_delay_ms: int = 200,
-):
+) -> Any:
     """Return the last key pressed (once) and then clear it.
 
     By default Streamlit custom components keep returning the last value that

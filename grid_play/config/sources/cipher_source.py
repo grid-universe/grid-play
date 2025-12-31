@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, List, Tuple, Optional
+from typing import Any, List, Tuple
 from dataclasses import dataclass
 import streamlit as st
+from grid_universe.state import State
 
 from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.examples import cipher_objective_levels
 from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
-from .base import LevelSource, register_level_source
+from .base import BaseConfig, LevelSource, register_level_source
 from ..shared_ui import seed_section, texture_map_section
 
 
@@ -15,11 +16,10 @@ from ..shared_ui import seed_section, texture_map_section
 # Config Dataclass
 # -----------------------------
 @dataclass(frozen=True)
-class CipherConfig:
+class CipherConfig(BaseConfig):
     width: int
     height: int
     num_required_items: int
-    seed: Optional[int]
     render_texture_map: TextureMap
     cipher_objective_pairs: List[Tuple[str, str]]
 
@@ -32,7 +32,7 @@ def build_cipher_config(current: object) -> CipherConfig:
     base = (
         current
         if isinstance(current, CipherConfig)
-        else CipherConfig(9, 7, 1, None, DEFAULT_TEXTURE_MAP, [])
+        else CipherConfig(None, 9, 7, 1, DEFAULT_TEXTURE_MAP, [])
     )
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -89,7 +89,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
     """Construct cipher micro-level environment using procedural generator."""
     pairs_arg = cfg.cipher_objective_pairs
 
-    def _initial_state_fn(**_ignored: Any):
+    def _initial_state_fn(**_ignored: Any) -> State:
         return cipher_objective_levels.generate(
             width=cfg.width,
             height=cfg.height,
@@ -106,7 +106,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
         ),
     }
     env = GridUniverseEnv(
-        render_mode="texture",
+        render_mode="rgb_array",
         initial_state_fn=_initial_state_fn,
         width=sample.width,
         height=sample.height,
@@ -119,7 +119,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
 
 
 def _default_cipher_config() -> CipherConfig:
-    return CipherConfig(9, 7, 1, None, DEFAULT_TEXTURE_MAP, [])
+    return CipherConfig(None, 9, 7, 1, DEFAULT_TEXTURE_MAP, [])
 
 
 register_level_source(

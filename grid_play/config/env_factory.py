@@ -9,7 +9,7 @@ from .sources.base import find_level_source_by_config
 
 def make_env_and_reset(
     config: AppConfig,
-):
+) -> None:
     """Create & reset an environment for a given config via its registered source.
 
     Centralizes session_state bookkeeping (env, obs, info, reward, prev_health)

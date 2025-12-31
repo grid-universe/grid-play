@@ -6,6 +6,11 @@ from typing import Any, Callable, Dict, List, Optional, Type
 from grid_universe.gym_env import GridUniverseEnv
 
 
+@dataclass(frozen=True)
+class BaseConfig:
+    seed: Optional[int]
+
+
 @dataclass
 class LevelSource:
     """Plugin describing a level family.
@@ -19,9 +24,9 @@ class LevelSource:
     """
 
     name: str
-    config_type: Type[Any]
-    initial_config: Callable[[], Any]
-    build_config: Callable[[Any], Any]
+    config_type: Type[BaseConfig]
+    initial_config: Callable[[], BaseConfig]
+    build_config: Callable[[Any], BaseConfig]
     make_env: Callable[[Any], GridUniverseEnv]
 
 

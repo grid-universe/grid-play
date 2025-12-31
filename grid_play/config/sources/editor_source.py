@@ -36,9 +36,10 @@ from grid_universe.renderer.texture import (
     TextureMap,
     TextureRenderer,
 )
+from grid_universe.state import State
 from grid_universe.types import MoveFn, ObjectiveFn
 
-from .base import LevelSource, register_level_source
+from .base import BaseConfig, LevelSource, register_level_source
 from ..shared_ui import texture_map_section
 
 
@@ -68,13 +69,12 @@ Design constraints:
 # Config Dataclass
 # -----------------------------
 @dataclass(frozen=True)
-class EditorConfig:
+class EditorConfig(BaseConfig):
     width: int
     height: int
     turn_limit: Optional[int]
     move_fn: MoveFn
     objective_fn: ObjectiveFn
-    seed: Optional[int]
     render_texture_map: TextureMap
     # Immutable snapshot of authored grid: grid[y][x] -> list of palette tokens (dict)
     # Each token dict: {"type": str, "params": {..}}. We rebuild EntitySpecs on play.
@@ -346,7 +346,7 @@ def _ensure_working_grid(width: int, height: int) -> List[List[List[Dict[str, An
             [[{"type": "floor", "params": {"cost": 1}}] for _ in range(width)]
             for _ in range(height)
         ]
-    return st.session_state[key]
+    return cast(List[List[List[Dict[str, Any]]]], st.session_state[key])
 
 
 def _place_tool(
@@ -356,37 +356,46 @@ def _place_tool(
     grid: List[List[List[Dict[str, Any]]]],
     params: Optional[Dict[str, Any]] = None,
 ) -> None:
+    def get_cell() -> List[Dict[str, Any]]:
+        return grid[y][x]
+
+    def set_cell(entries: List[Dict[str, Any]]) -> None:
+        grid[y][x] = entries
+
+    def get_floor(cell: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        return next((t for t in cell if t.get("type") == "floor"), None)
+
+    def default_floor(cost: int = 1) -> Dict[str, Any]:
+        return {"type": "floor", "params": {"cost": cost}}
+
+    def ensure_floor(
+        cell: List[Dict[str, Any]], default_cost: int = 1
+    ) -> Dict[str, Any]:
+        floor_entry = get_floor(cell)
+        return floor_entry if floor_entry is not None else default_floor(default_cost)
+
+    cell = get_cell()
+
     if tool_key == "erase":
-        # retain floor only
-        grid[y][x] = [next(t for t in grid[y][x] if t["type"] == "floor")]
+        # Retain floor only (create default floor if missing to avoid StopIteration)
+        base_floor = ensure_floor(cell, 1)
+        set_cell([base_floor])
         return
+
     if tool_key == "floor":
-        # Update existing floor cost (do not append duplicate floor token)
-        floor_entry_opt: Optional[Dict[str, Any]] = next(
-            (t for t in grid[y][x] if t["type"] == "floor"), None
-        )
-        if floor_entry_opt is None:
-            grid[y][x] = [
-                {
-                    "type": "floor",
-                    "params": {"cost": params.get("cost", 1) if params else 1},
-                }
-            ]
+        # Create or update floor without duplicating
+        floor_opt: Optional[Dict[str, Any]] = get_floor(cell)
+        if floor_opt is None:
+            cost = params.get("cost", 1) if params else 1
+            set_cell([default_floor(cost)])
         else:
             if params and "cost" in params:
-                floor_entry_opt["params"]["cost"] = params["cost"]
+                floor_opt["params"]["cost"] = params["cost"]
         return
-    # Remove all non-floor entries
-    floor_entry_opt: Optional[Dict[str, Any]] = next(
-        (t for t in grid[y][x] if t["type"] == "floor"), None
-    )
-    if floor_entry_opt is None:
-        floor_entry: Dict[str, Any] = {"type": "floor", "params": {"cost": 1}}
-    else:
-        floor_entry = floor_entry_opt
-    grid[y][x] = [floor_entry]  # reset cell
-    # Use provided params snapshot (already captured from UI)
-    grid[y][x].append({"type": tool_key, "params": params or {}})
+
+    # Non-floor tools: ensure floor, reset cell to floor-only, then append tool
+    base_floor = ensure_floor(cell, 1)
+    set_cell([base_floor, {"type": tool_key, "params": params or {}}])
 
 
 def _pair_portals(grid: List[List[List[Dict[str, Any]]]]) -> None:
@@ -432,11 +441,11 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
                 defaults = _default_tool_params(ttype)
                 merged: Dict[str, Any] = {**defaults, **params}
                 try:
-                    spec = builder.builder(merged)  # type: ignore[arg-type]
+                    spec = builder.builder(merged)
                 except Exception:
                     # Fallback: try with defaults only
                     try:
-                        spec = builder.builder(defaults)  # type: ignore[arg-type]
+                        spec = builder.builder(defaults)
                     except Exception:
                         continue
                 level.add((x, y), spec)
@@ -449,7 +458,7 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
         pairs = cast(
             List[Tuple[Tuple[int, int], Tuple[int, int]]],
             st.session_state["editor_portal_pairs"],
-        )  # type: ignore[assignment]
+        )
     else:
         ordered = list(portal_specs.keys())
         pairs = [(ordered[i], ordered[i + 1]) for i in range(0, len(ordered) - 1, 2)]
@@ -459,9 +468,9 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
         if a is not None and b is not None and a is not b:
             # Mirror the factory pairing semantics
             try:
-                a.portal_pair_ref = b  # type: ignore[attr-defined]
+                a.portal_pair_ref = b
                 if getattr(b, "portal_pair_ref", None) is None:
-                    b.portal_pair_ref = a  # type: ignore[attr-defined]
+                    b.portal_pair_ref = a
             except Exception:
                 pass
     return level
@@ -557,7 +566,7 @@ def build_editor_config(current: object) -> EditorConfig:
     # Preview
     with preview_col:
         st.subheader("Preview")
-        snap_tokens: Tuple[Tuple[Tuple[Dict[str, Any], ...], ...], ...] = tuple(
+        snap_tokens_preview: Tuple[Tuple[Tuple[Dict[str, Any], ...], ...], ...] = tuple(
             tuple(tuple(cell) for cell in row) for row in grid
         )
         temp_cfg = EditorConfig(
@@ -568,7 +577,7 @@ def build_editor_config(current: object) -> EditorConfig:
             objective_fn=objective_fn,
             seed=seed,
             render_texture_map=texture_map,
-            grid_tokens=snap_tokens,
+            grid_tokens=snap_tokens_preview,
         )
         try:
             lvl = _build_level_from_tokens(temp_cfg)
@@ -848,12 +857,12 @@ def _generate_level_code(cfg: EditorConfig) -> str:
     append("        return to_state(build_level())")
     append("    state = _initial_state_fn()")
     append(
-        "    return GridUniverseEnv(render_mode='texture', initial_state_fn=_initial_state_fn, width=state.width, height=state.height)"
+        "    return GridUniverseEnv(render_mode='rgb_array', initial_state_fn=_initial_state_fn, width=state.width, height=state.height)"
     )
     append("")
     append("if __name__ == '__main__':")
     append("    env = build_env()")
-    append("    img = env.render(mode='texture')")
+    append("    img = env.render(mode='rgb_array')")
     append("    if img is not None: img.show()")
     return "\n".join(lines)
 
@@ -885,7 +894,7 @@ def _objective_fn_section(cfg: EditorConfig) -> ObjectiveFn:
 
 def _make_env(cfg: EditorConfig) -> GridUniverseEnv:
     # Rebuild Level -> State each env reset (ensures fresh IDs)
-    def _initial_state_fn(**_ignored: Any):
+    def _initial_state_fn(**_ignored: Any) -> State:
         level = _build_level_from_tokens(cfg)
         return to_state(level)
 
@@ -898,7 +907,7 @@ def _make_env(cfg: EditorConfig) -> GridUniverseEnv:
             "Level must contain an Agent. Use the 'Agent' tool in the palette to place one before starting."
         )
     return GridUniverseEnv(
-        render_mode="texture",
+        render_mode="rgb_array",
         initial_state_fn=_initial_state_fn,
         width=sample_state.width,
         height=sample_state.height,

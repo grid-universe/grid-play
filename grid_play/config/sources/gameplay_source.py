@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Callable, Any, List, Optional
+from typing import Dict, Callable, Any, List
 import streamlit as st
 from dataclasses import dataclass
 
@@ -8,7 +8,7 @@ from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.state import State
 from grid_universe.examples import gameplay_levels
 from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
-from .base import LevelSource, register_level_source
+from .base import BaseConfig, LevelSource, register_level_source
 from ..shared_ui import seed_section, texture_map_section
 
 
@@ -16,9 +16,8 @@ from ..shared_ui import seed_section, texture_map_section
 # Config Dataclass
 # -----------------------------
 @dataclass(frozen=True)
-class GameplayConfig:
+class GameplayConfig(BaseConfig):
     level_name: str
-    seed: Optional[int]
     render_texture_map: TextureMap
 
 
@@ -74,12 +73,12 @@ def _make_env(cfg: GameplayConfig) -> GridUniverseEnv:
     if builder is None:
         raise ValueError(f"Unknown gameplay level: {cfg.level_name}")
 
-    def _initial_state_fn(**_ignored: Any):  # deterministic authored state
+    def _initial_state_fn(**_ignored: Any) -> State:  # deterministic authored state
         return builder(cfg.seed if cfg.seed is not None else 0)
 
     sample = _initial_state_fn()
     return GridUniverseEnv(
-        render_mode="texture",
+        render_mode="rgb_array",
         initial_state_fn=_initial_state_fn,
         width=sample.width,
         height=sample.height,

@@ -1,11 +1,5 @@
 import streamlit as st
 from .env_factory import make_env_and_reset
-from .sources import (
-    maze_source,
-    gameplay_source,
-    cipher_source,
-    editor_source,
-)  # registration side-effects
 from .sources.base import all_level_sources, find_level_source_by_config, LevelSource
 
 from .types import AppConfig
@@ -17,16 +11,15 @@ __all__ = [
     "set_default_config",
     "get_config_from_widgets",
     "LevelSource",
+    "AppConfig",
 ]
 
 
 def _initial_config() -> AppConfig:
+    if not all_level_sources():
+        raise RuntimeError("No level sources registered; cannot create initial config.")
     src = all_level_sources()[-1]
     return src.initial_config()
-
-
-# Touch imported modules to placate static analyzers (ensures side-effects retained)
-_ = (maze_source, gameplay_source, cipher_source, editor_source)
 
 
 def set_default_config() -> None:

@@ -5,27 +5,58 @@ from dataclasses import replace
 from typing import Dict, Optional
 from pyrsistent import thaw
 
-from config import (
+# --------- Main App Imports ---------
+
+from grid_play.config import (
     AppConfig,
     set_default_config,
     get_config_from_widgets,
     make_env_and_reset,
 )
-from components import (
+from grid_play.components import (
     display_powerup_status,
     display_inventory,
     get_keyboard_action,
     do_action,
 )
+from grid_play.plugins import import_plugins, import_plugin_files
 from grid_universe.gym_env import GridUniverseEnv, Observation, Action
 
-script_dir: str = os.path.dirname(os.path.realpath(__file__))
+# --------- Built-in Level Sources ---------
+
+BUILT_IN_SOURCES = [
+    "grid_play.config.sources.maze_source",
+    "grid_play.config.sources.gameplay_source",
+    "grid_play.config.sources.cipher_source",
+    "grid_play.config.sources.editor_source",
+]
+
+# --------- Plugin Import ---------
+
+plugin_modules_env = os.getenv("GRID_PLAY_PLUGINS", "")
+plugin_files_env = os.getenv("GRID_PLAY_PLUGIN_FILES", "")
+
+plugin_modules = [
+    name.strip() for name in plugin_modules_env.split(",") if name.strip()
+]
+plugin_files = [path.strip() for path in plugin_files_env.split(",") if path.strip()]
+
+if not plugin_modules and not plugin_files:
+    plugin_modules = (
+        BUILT_IN_SOURCES  # Default to built-in sources if no plugins specified
+    )
+
+import_plugins(plugin_modules)
+import_plugin_files(plugin_files)
+
+# --------- Streamlit App Setup ---------
+
+SCRIPT_DIR: str = os.path.dirname(os.path.realpath(__file__))
 
 st.set_page_config(layout="wide", page_title="Grid Universe")
 
-with open(os.path.join(script_dir, "styles.css")) as f:
+with open(os.path.join(SCRIPT_DIR, "styles.css")) as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-
 
 # --------- Main App ---------
 
@@ -36,7 +67,7 @@ with tab_config:
     config: AppConfig = get_config_from_widgets()
     st.session_state["config"] = config
 
-    if st.button("Save", key="save_config_btn", use_container_width=True):
+    if st.button("Save", key="save_config_btn", width="stretch"):
         st.session_state["seed_counter"] = 0
         base_seed = config.seed if config.seed is not None else 0
         st.session_state["config"] = replace(config, seed=base_seed)
@@ -51,7 +82,7 @@ with tab_game:
 
     with right_col:
         current_cfg: AppConfig = st.session_state["config"]
-        if st.button("🔁 New Level", key="generate_btn", use_container_width=True):
+        if st.button("🔁 New Level", key="generate_btn", width="stretch"):
             st.session_state["seed_counter"] += 1
             base_seed = current_cfg.seed if current_cfg.seed is not None else 0
             new_seed = base_seed + st.session_state["seed_counter"]
@@ -88,28 +119,28 @@ with tab_game:
 
         _, up_col, _ = st.columns([1, 1, 1])
         with up_col:
-            if st.button("⬆️", key="up_btn", use_container_width=True):
+            if st.button("⬆️", key="up_btn", width="stretch"):
                 do_action(env, Action.UP)
         left_btn, down_btn, right_btn = st.columns([1, 1, 1])
         with left_btn:
-            if st.button("⬅️", key="left_btn", use_container_width=True):
+            if st.button("⬅️", key="left_btn", width="stretch"):
                 do_action(env, Action.LEFT)
         with down_btn:
-            if st.button("⬇️", key="down_btn", use_container_width=True):
+            if st.button("⬇️", key="down_btn", width="stretch"):
                 do_action(env, Action.DOWN)
         with right_btn:
-            if st.button("➡️", key="right_btn", use_container_width=True):
+            if st.button("➡️", key="right_btn", width="stretch"):
                 do_action(env, Action.RIGHT)
 
         pickup_btn, usekey_btn, wait_btn = st.columns([1, 1, 1])
         with pickup_btn:
-            if st.button("🤲 Pickup", key="pickup_btn", use_container_width=True):
+            if st.button("🤲 Pickup", key="pickup_btn", width="stretch"):
                 do_action(env, Action.PICK_UP)
         with usekey_btn:
-            if st.button("🔑 Use", key="usekey_btn", use_container_width=True):
+            if st.button("🔑 Use", key="usekey_btn", width="stretch"):
                 do_action(env, Action.USE_KEY)
         with wait_btn:
-            if st.button("⏳ Wait", key="wait_btn", use_container_width=True):
+            if st.button("⏳ Wait", key="wait_btn", width="stretch"):
                 do_action(env, Action.WAIT)
 
         action: Optional[Action] = get_keyboard_action()
@@ -145,10 +176,10 @@ with tab_game:
         img = env.render(mode="rgb_array")
         if img is not None:
             img_compressed = img.convert("P")  # Converts to 8-bit palette mode
-            st.image(img_compressed, use_container_width=True)
+            st.image(img_compressed, width="stretch")
         if obs:
             # Re-fetch current observation, otherwise info may be stale
-            current_obs = env._get_obs()  # type: ignore
+            current_obs = env._get_obs()
             if isinstance(current_obs, dict) and "info" in current_obs:
                 st.json(current_obs["info"], expanded=1)
 

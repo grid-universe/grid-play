@@ -8,7 +8,7 @@ from grid_universe.components.effects import (
     TimeLimit,
     UsageLimit,
 )
-from keyup import keyup
+from grid_play.keyup import keyup
 from grid_universe.components import Status, Inventory
 from grid_universe.gym_env import GridUniverseEnv, Action
 from grid_universe.state import State
