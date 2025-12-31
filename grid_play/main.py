@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import os
 import streamlit as st
 
 from dataclasses import replace
-from typing import Dict, Optional
 from pyrsistent import thaw
 
 # --------- Main App Imports ---------
@@ -25,10 +26,10 @@ from grid_universe.gym_env import GridUniverseEnv, Observation, Action
 # --------- Built-in Level Sources ---------
 
 BUILT_IN_SOURCES = [
-    "grid_play.config.sources.maze_source",
-    "grid_play.config.sources.gameplay_source",
-    "grid_play.config.sources.cipher_source",
-    "grid_play.config.sources.editor_source",
+    "grid_play.config.sources.examples.maze",
+    "grid_play.config.sources.examples.gameplay",
+    "grid_play.config.sources.examples.cipher",
+    "grid_play.config.sources.examples.editor",
 ]
 
 # --------- Plugin Import ---------
@@ -53,7 +54,7 @@ import_plugin_files(plugin_files)
 
 SCRIPT_DIR: str = os.path.dirname(os.path.realpath(__file__))
 
-st.set_page_config(layout="wide", page_title="Grid Universe")
+st.set_page_config(layout="wide", page_title="Grid Play")
 
 with open(os.path.join(SCRIPT_DIR, "styles.css")) as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
@@ -92,7 +93,7 @@ with tab_game:
         # Need to put after generate maze
         env: GridUniverseEnv = st.session_state["env"]
         obs: Observation = st.session_state["obs"]
-        info: Dict[str, object] = st.session_state["info"]
+        info: dict[str, object] = st.session_state["info"]
 
         if env.state:
             maze_rule = (
@@ -143,7 +144,7 @@ with tab_game:
             if st.button("⏳ Wait", key="wait_btn", width="stretch"):
                 do_action(env, Action.WAIT)
 
-        action: Optional[Action] = get_keyboard_action()
+        action: Action | None = get_keyboard_action()
         if action is not None:
             do_action(env, action)
 

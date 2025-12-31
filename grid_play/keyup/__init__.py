@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import os
-from typing import Any, Optional
+from typing import Any
 import streamlit.components.v1 as components
 
 script_dir: str = os.path.dirname(os.path.realpath(__file__))
@@ -12,7 +14,7 @@ component = components.declare_component(component_name, path=frontend_dir)
 def keyup(
     default_text: str = "Default",
     focused_text: str = "Focused",
-    key: Optional[str] = None,
+    key: str | None = None,
     auto_clear: bool = True,
     clear_delay_ms: int = 200,
 ) -> Any:

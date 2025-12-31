@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Callable
 
 from grid_universe.gym_env import GridUniverseEnv
 
 
 @dataclass(frozen=True)
 class BaseConfig:
-    seed: Optional[int]
+    seed: int | None
 
 
 @dataclass
@@ -24,14 +24,14 @@ class LevelSource:
     """
 
     name: str
-    config_type: Type[BaseConfig]
+    config_type: type[BaseConfig]
     initial_config: Callable[[], BaseConfig]
-    build_config: Callable[[Any], BaseConfig]
-    make_env: Callable[[Any], GridUniverseEnv]
+    build_config: Callable[..., BaseConfig]
+    make_env: Callable[..., GridUniverseEnv]
 
 
-_LEVEL_SOURCE_REGISTRY: List[LevelSource] = []
-_NAME_INDEX: Dict[str, LevelSource] = {}
+_LEVEL_SOURCE_REGISTRY: list[LevelSource] = []
+_NAME_INDEX: dict[str, LevelSource] = {}
 
 
 def register_level_source(source: LevelSource) -> None:
@@ -46,17 +46,17 @@ def register_level_source(source: LevelSource) -> None:
     _NAME_INDEX[source.name] = source
 
 
-def all_level_sources() -> List[LevelSource]:
+def all_level_sources() -> list[LevelSource]:
     """Return registered sources sorted by name for stable UI ordering."""
     return sorted(_LEVEL_SOURCE_REGISTRY, key=lambda s: s.name.lower())
 
 
-def find_level_source_by_config(config: object) -> Optional[LevelSource]:
+def find_level_source_by_config(config: object) -> LevelSource | None:
     for src in _LEVEL_SOURCE_REGISTRY:
         if isinstance(config, src.config_type):
             return src
     return None
 
 
-def find_level_source_by_name(name: str) -> Optional[LevelSource]:
+def find_level_source_by_name(name: str) -> LevelSource | None:
     return _NAME_INDEX.get(name)

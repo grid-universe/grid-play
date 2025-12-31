@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any
+
 from dataclasses import dataclass
 import streamlit as st
 from grid_universe.state import State
@@ -8,8 +9,9 @@ from grid_universe.state import State
 from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.examples import cipher_objective_levels
 from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
-from .base import BaseConfig, LevelSource, register_level_source
-from ..shared_ui import seed_section, texture_map_section
+
+from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
+from grid_play.config.shared_ui import seed_section, texture_map_section
 
 
 # -----------------------------
@@ -21,7 +23,7 @@ class CipherConfig(BaseConfig):
     height: int
     num_required_items: int
     render_texture_map: TextureMap
-    cipher_objective_pairs: List[Tuple[str, str]]
+    cipher_objective_pairs: list[tuple[str, str]]
 
 
 # -----------------------------
@@ -63,7 +65,7 @@ def build_cipher_config(current: object) -> CipherConfig:
         height=140,
         help="Each line 'token,objective'. Empty or invalid lines skipped.",
     )
-    parsed: List[Tuple[str, str]] = []
+    parsed: list[tuple[str, str]] = []
     for ln in raw.splitlines():
         line = ln.strip()
         if not line or line.startswith("#") or "," not in line:
@@ -74,7 +76,7 @@ def build_cipher_config(current: object) -> CipherConfig:
             parsed.append((tok, obj))
     st.markdown(f"Valid lines: **{len(parsed)}**")
     seed = seed_section(key="cipher_seed")
-    texture = texture_map_section(base)  # type: ignore[arg-type]
+    texture = texture_map_section(base)
     return CipherConfig(
         width=width,
         height=height,
@@ -124,7 +126,7 @@ def _default_cipher_config() -> CipherConfig:
 
 register_level_source(
     LevelSource(
-        name="Cipher Example",
+        name="Grid Universe Cipher Example",
         config_type=CipherConfig,
         initial_config=_default_cipher_config,
         build_config=build_cipher_config,

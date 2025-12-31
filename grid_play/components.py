@@ -1,6 +1,6 @@
+from __future__ import annotations
 from pyrsistent import PMap
 import streamlit as st
-from typing import Dict, List, Optional, Tuple
 from grid_universe.components.effects import (
     Immunity,
     Phasing,
@@ -15,23 +15,23 @@ from grid_universe.state import State
 from grid_universe.types import EffectLimit, EffectLimitAmount, EffectType, EntityID
 
 
-ITEM_ICONS: Dict[str, str] = {
+ITEM_ICONS: dict[str, str] = {
     "key": "🔑",
     "coin": "🪙",
     "core": "🌟",
 }
 
-POWERUP_ICONS: Dict[str, str] = {
+POWERUP_ICONS: dict[str, str] = {
     "ghost": "👻",
     "shield": "🛡️",
     "boots": "⚡",
 }
 
 
-def get_effect_types(state: State, effect_id: EntityID) -> List[EffectType]:
-    effect_types: List[EffectType] = []
-    effect_type_ids: List[
-        Tuple[EffectType, PMap[EntityID, Immunity]]
+def get_effect_types(state: State, effect_id: EntityID) -> list[EffectType]:
+    effect_types: list[EffectType] = []
+    effect_type_ids: list[
+        tuple[EffectType, PMap[EntityID, Immunity]]
         | tuple[EffectType, PMap[EntityID, Phasing]]
         | tuple[EffectType, PMap[EntityID, Speed]]
     ] = [
@@ -47,10 +47,10 @@ def get_effect_types(state: State, effect_id: EntityID) -> List[EffectType]:
 
 def get_effect_limits(
     state: State, effect_id: EntityID
-) -> List[Tuple[EffectLimit, EffectLimitAmount]]:
-    effect_limits: List[Tuple[EffectLimit, EffectLimitAmount]] = []
-    limit_type_ids: List[
-        Tuple[EffectLimit, PMap[EntityID, TimeLimit]]
+) -> list[tuple[EffectLimit, EffectLimitAmount]]:
+    effect_limits: list[tuple[EffectLimit, EffectLimitAmount]] = []
+    limit_type_ids: list[
+        tuple[EffectLimit, PMap[EntityID, TimeLimit]]
         | tuple[EffectLimit, PMap[EntityID, UsageLimit]]
     ] = [
         (EffectLimit.TIME, state.time_limit),
@@ -94,7 +94,7 @@ def display_inventory(state: State, inventory: Inventory) -> None:
             st.success(text, icon=icon)
 
 
-def get_keyboard_action() -> Optional[Action]:
+def get_keyboard_action() -> Action | None:
     key_map = {
         "ArrowUp": Action.UP,
         "ArrowDown": Action.DOWN,

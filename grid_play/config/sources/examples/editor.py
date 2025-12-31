@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Any, cast
 
 import streamlit as st
 
@@ -39,8 +39,8 @@ from grid_universe.renderer.texture import (
 from grid_universe.state import State
 from grid_universe.types import MoveFn, ObjectiveFn
 
-from .base import BaseConfig, LevelSource, register_level_source
-from ..shared_ui import texture_map_section
+from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
+from grid_play.config.shared_ui import texture_map_section
 
 
 """Streamlit interactive level editor source.
@@ -72,19 +72,19 @@ Design constraints:
 class EditorConfig(BaseConfig):
     width: int
     height: int
-    turn_limit: Optional[int]
+    turn_limit: int | None
     move_fn: MoveFn
     objective_fn: ObjectiveFn
     render_texture_map: TextureMap
     # Immutable snapshot of authored grid: grid[y][x] -> list of palette tokens (dict)
     # Each token dict: {"type": str, "params": {..}}. We rebuild EntitySpecs on play.
-    grid_tokens: Tuple[Tuple[Tuple[Dict[str, Any], ...], ...], ...]
+    grid_tokens: tuple[tuple[tuple[dict[str, Any], ...], ...], ...]
 
 
 def _default_editor_config() -> EditorConfig:
     width, height = 9, 7
     # Initial empty grid tokens (floors only)
-    base_row: Tuple[Tuple[Dict[str, Any], ...], ...] = tuple(
+    base_row: tuple[tuple[dict[str, Any], ...], ...] = tuple(
         tuple(({"type": "floor", "params": {"cost": 1}},)) for _ in range(width)
     )
     grid_tokens = tuple(base_row for _ in range(height))
@@ -107,8 +107,8 @@ class ToolSpec:
     def __init__(
         self,
         label: str,
-        builder: Optional[Callable[[Dict[str, Any]], Any]],
-        param_ui: Optional[Callable[[], Dict[str, Any]]] = None,
+        builder: Callable[[dict[str, Any]], Any] | None,
+        param_ui: Callable[[], dict[str, Any]] | None = None,
         icon: str = "",
         multi_place: bool = False,
         description: str = "",
@@ -121,33 +121,33 @@ class ToolSpec:
         self.description = description
 
 
-def _agent_params() -> Dict[str, Any]:
+def _agent_params() -> dict[str, Any]:
     health = st.number_input("Health", 1, 99, 5, key="agent_health")
     return {"health": int(health)}
 
 
-def _coin_params() -> Dict[str, Any]:
+def _coin_params() -> dict[str, Any]:
     reward = st.number_input("Reward (0 = none)", 0, 999, 0, key="coin_reward")
     return {"reward": int(reward) if reward > 0 else None}
 
 
-def _core_params() -> Dict[str, Any]:
+def _core_params() -> dict[str, Any]:
     reward = st.number_input("Reward (0 = none)", 0, 999, 10, key="core_reward")
     required = st.checkbox("Required?", value=True, key="core_required")
     return {"reward": int(reward) if reward > 0 else None, "required": bool(required)}
 
 
-def _key_params() -> Dict[str, Any]:
+def _key_params() -> dict[str, Any]:
     key_id = st.text_input("Key ID", value="A", key="key_id")
     return {"key_id": key_id or "A"}
 
 
-def _door_params() -> Dict[str, Any]:
+def _door_params() -> dict[str, Any]:
     key_id = st.text_input("Door Key ID", value="A", key="door_key_id")
     return {"key_id": key_id or "A"}
 
 
-def _movement_params(kind: str) -> Dict[str, Any]:
+def _movement_params(kind: str) -> dict[str, Any]:
     """Shared UI for movement (axis, direction, bounce, speed).
 
     kind: prefix for Streamlit widget keys to avoid collisions.
@@ -159,7 +159,7 @@ def _movement_params(kind: str) -> Dict[str, Any]:
         key=f"{kind}_move_axis",
         help="Movement axis (None = static).",
     )
-    axis: Optional[MovingAxis]
+    axis: MovingAxis | None
     if axis_label == "Horizontal":
         axis = MovingAxis.HORIZONTAL
     elif axis_label == "Vertical":
@@ -185,7 +185,7 @@ def _movement_params(kind: str) -> Dict[str, Any]:
     }
 
 
-def _monster_params() -> Dict[str, Any]:
+def _monster_params() -> dict[str, Any]:
     damage = st.number_input("Damage", 1, 50, 3, key="monster_dmg")
     lethal = st.checkbox("Lethal?", value=False, key="monster_lethal")
     st.markdown("**Movement**")
@@ -193,15 +193,15 @@ def _monster_params() -> Dict[str, Any]:
     return {"damage": int(damage), "lethal": bool(lethal), **move}
 
 
-def _box_params() -> Dict[str, Any]:
+def _box_params() -> dict[str, Any]:
     pushable = st.checkbox("Pushable?", value=True, key="box_pushable")
     st.markdown("**Movement**")
     move = _movement_params("box")
     return {"pushable": bool(pushable), **move}
 
 
-def _hazard_params(kind: str) -> Callable[[], Dict[str, Any]]:
-    def _inner() -> Dict[str, Any]:
+def _hazard_params(kind: str) -> Callable[[], dict[str, Any]]:
+    def _inner() -> dict[str, Any]:
         damage = st.number_input(
             "Damage",
             0,
@@ -222,7 +222,7 @@ def _hazard_params(kind: str) -> Callable[[], Dict[str, Any]]:
     return _inner
 
 
-def _floor_params() -> Dict[str, Any]:
+def _floor_params() -> dict[str, Any]:
     cost = st.number_input(
         "Move Cost",
         1,
@@ -234,7 +234,7 @@ def _floor_params() -> Dict[str, Any]:
     return {"cost": int(cost)}
 
 
-def _speed_params() -> Dict[str, Any]:
+def _speed_params() -> dict[str, Any]:
     mult = st.number_input("Multiplier", 2, 10, 2, key="speed_mult")
     time = st.number_input("Time (0=∞)", 0, 999, 0, key="speed_time")
     usage = st.number_input("Usage (0=∞)", 0, 999, 0, key="speed_usage")
@@ -245,7 +245,7 @@ def _speed_params() -> Dict[str, Any]:
     }
 
 
-def _limit_params(effect: str) -> Dict[str, Any]:
+def _limit_params(effect: str) -> dict[str, Any]:
     time = st.number_input("Time (0=∞)", 0, 999, 0, key=f"{effect}_time")
     usage = st.number_input("Usage (0=∞)", 0, 999, 0, key=f"{effect}_usage")
     return {
@@ -254,7 +254,7 @@ def _limit_params(effect: str) -> Dict[str, Any]:
     }
 
 
-PALETTE: Dict[str, ToolSpec] = {
+PALETTE: dict[str, ToolSpec] = {
     "floor": ToolSpec(
         "Floor",
         lambda p: create_floor(cost_amount=p.get("cost", 1)),
@@ -339,38 +339,38 @@ PALETTE: Dict[str, ToolSpec] = {
 # -----------------------------
 # Working Grid Helpers
 # -----------------------------
-def _ensure_working_grid(width: int, height: int) -> List[List[List[Dict[str, Any]]]]:
+def _ensure_working_grid(width: int, height: int) -> list[list[list[dict[str, Any]]]]:
     key = "editor_working_grid"
     if key not in st.session_state:
         st.session_state[key] = [
             [[{"type": "floor", "params": {"cost": 1}}] for _ in range(width)]
             for _ in range(height)
         ]
-    return cast(List[List[List[Dict[str, Any]]]], st.session_state[key])
+    return cast(list[list[list[dict[str, Any]]]], st.session_state[key])
 
 
 def _place_tool(
     tool_key: str,
     x: int,
     y: int,
-    grid: List[List[List[Dict[str, Any]]]],
-    params: Optional[Dict[str, Any]] = None,
+    grid: list[list[list[dict[str, Any]]]],
+    params: dict[str, Any] | None = None,
 ) -> None:
-    def get_cell() -> List[Dict[str, Any]]:
+    def get_cell() -> list[dict[str, Any]]:
         return grid[y][x]
 
-    def set_cell(entries: List[Dict[str, Any]]) -> None:
+    def set_cell(entries: list[dict[str, Any]]) -> None:
         grid[y][x] = entries
 
-    def get_floor(cell: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def get_floor(cell: list[dict[str, Any]]) -> dict[str, Any] | None:
         return next((t for t in cell if t.get("type") == "floor"), None)
 
-    def default_floor(cost: int = 1) -> Dict[str, Any]:
+    def default_floor(cost: int = 1) -> dict[str, Any]:
         return {"type": "floor", "params": {"cost": cost}}
 
     def ensure_floor(
-        cell: List[Dict[str, Any]], default_cost: int = 1
-    ) -> Dict[str, Any]:
+        cell: list[dict[str, Any]], default_cost: int = 1
+    ) -> dict[str, Any]:
         floor_entry = get_floor(cell)
         return floor_entry if floor_entry is not None else default_floor(default_cost)
 
@@ -384,7 +384,7 @@ def _place_tool(
 
     if tool_key == "floor":
         # Create or update floor without duplicating
-        floor_opt: Optional[Dict[str, Any]] = get_floor(cell)
+        floor_opt: dict[str, Any] | None = get_floor(cell)
         if floor_opt is None:
             cost = params.get("cost", 1) if params else 1
             set_cell([default_floor(cost)])
@@ -398,8 +398,8 @@ def _place_tool(
     set_cell([base_floor, {"type": tool_key, "params": params or {}}])
 
 
-def _pair_portals(grid: List[List[List[Dict[str, Any]]]]) -> None:
-    portals: List[Tuple[int, int]] = []
+def _pair_portals(grid: list[list[list[dict[str, Any]]]]) -> None:
+    portals: list[tuple[int, int]] = []
     for yy, row in enumerate(grid):
         for xx, cell in enumerate(row):
             if any(t["type"] == "portal" for t in cell):
@@ -422,7 +422,7 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
         turn_limit=cfg.turn_limit,
     )
 
-    portal_specs: Dict[Tuple[int, int], Any] = {}
+    portal_specs: dict[tuple[int, int], Any] = {}
     grid_tokens = cfg.grid_tokens
     for y in range(cfg.height):
         for x in range(cfg.width):
@@ -436,10 +436,10 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
                     continue
                 if builder.builder is None:
                     continue
-                params = cast(Dict[str, Any], token.get("params", {}) or {})
+                params = cast(dict[str, Any], token.get("params", {}) or {})
                 # merge defaults for safety
                 defaults = _default_tool_params(ttype)
-                merged: Dict[str, Any] = {**defaults, **params}
+                merged: dict[str, Any] = {**defaults, **params}
                 try:
                     spec = builder.builder(merged)
                 except Exception:
@@ -453,10 +453,10 @@ def _build_level_from_tokens(cfg: EditorConfig) -> Level:
                     portal_specs[(x, y)] = spec
 
     # Pair portals using stored pairs if available else sequential reading order
-    pairs: List[Tuple[Tuple[int, int], Tuple[int, int]]] = []
+    pairs: list[tuple[tuple[int, int], tuple[int, int]]] = []
     if "editor_portal_pairs" in st.session_state:
         pairs = cast(
-            List[Tuple[Tuple[int, int], Tuple[int, int]]],
+            list[tuple[tuple[int, int], tuple[int, int]]],
             st.session_state["editor_portal_pairs"],
         )
     else:
@@ -502,12 +502,12 @@ def build_editor_config(current: object) -> EditorConfig:
         turn_limit = int(tl_val) if int(tl_val) > 0 else None
     move_fn = _move_fn_section(base)
     objective_fn = _objective_fn_section(base)
-    texture_map = texture_map_section(base)  # type: ignore[arg-type]
+    texture_map = texture_map_section(base)
 
     # Working grid (resize if needed)
     grid = _ensure_working_grid(int(width), int(height))
     if len(grid) != height or len(grid[0]) != width:
-        new_grid: List[List[List[Dict[str, Any]]]] = [
+        new_grid: list[list[list[dict[str, Any]]]] = [
             [[{"type": "floor", "params": {"cost": 1}}] for _ in range(int(width))]
             for _ in range(int(height))
         ]
@@ -532,7 +532,7 @@ def build_editor_config(current: object) -> EditorConfig:
         )
         selected_tool_key = tool_keys[selected_idx]
         tspec = PALETTE[selected_tool_key]
-        current_params: Dict[str, Any] = {}
+        current_params: dict[str, Any] = {}
         if tspec.param_ui:
             st.markdown("**Parameters**")
             try:
@@ -566,7 +566,7 @@ def build_editor_config(current: object) -> EditorConfig:
     # Preview
     with preview_col:
         st.subheader("Preview")
-        snap_tokens_preview: Tuple[Tuple[Tuple[Dict[str, Any], ...], ...], ...] = tuple(
+        snap_tokens_preview: tuple[tuple[tuple[dict[str, Any], ...], ...], ...] = tuple(
             tuple(tuple(cell) for cell in row) for row in grid
         )
         temp_cfg = EditorConfig(
@@ -601,7 +601,7 @@ def build_editor_config(current: object) -> EditorConfig:
         )
 
     # Final snapshot config
-    snap_tokens: Tuple[Tuple[Tuple[Dict[str, Any], ...], ...], ...] = tuple(
+    snap_tokens: tuple[tuple[tuple[dict[str, Any], ...], ...], ...] = tuple(
         tuple(tuple(cell) for cell in row) for row in grid
     )
     return EditorConfig(
@@ -617,7 +617,7 @@ def build_editor_config(current: object) -> EditorConfig:
 
 
 def _registry_name_by_value(
-    reg: Dict[str, Any], value: Any, default_key: Optional[str] = None
+    reg: dict[str, Any], value: Any, default_key: str | None = None
 ) -> str:
     for k, v in reg.items():
         if v is value:
@@ -625,7 +625,7 @@ def _registry_name_by_value(
     return default_key or next(iter(reg.keys()))
 
 
-def _py_axis(axis: Optional[MovingAxis]) -> str:
+def _py_axis(axis: MovingAxis | None) -> str:
     if axis is None:
         return "None"
     if axis == MovingAxis.HORIZONTAL:
@@ -635,7 +635,7 @@ def _py_axis(axis: Optional[MovingAxis]) -> str:
     return "None"
 
 
-def _factory_call_str(ttype: str, params: Dict[str, Any]) -> str:
+def _factory_call_str(ttype: str, params: dict[str, Any]) -> str:
     # Build factory call string for a single non-portal token
     if ttype == "floor":
         return f"create_floor(cost_amount={int(params.get('cost', 1))})"
@@ -732,9 +732,9 @@ def _generate_level_code(cfg: EditorConfig) -> str:
     obj_key = _registry_name_by_value(OBJECTIVE_FN_REGISTRY, cfg.objective_fn)
 
     # Collect portal positions and pairing, and group non-portal by factory call
-    portal_positions: List[Tuple[int, int]] = []
-    grouped: Dict[str, List[Tuple[int, int]]] = {}
-    factories_used: Dict[str, bool] = {}
+    portal_positions: list[tuple[int, int]] = []
+    grouped: dict[str, list[tuple[int, int]]] = {}
+    factories_used: dict[str, bool] = {}
     uses_moving_axis = False
 
     def _mark_factory(ttype: str) -> None:
@@ -770,7 +770,7 @@ def _generate_level_code(cfg: EditorConfig) -> str:
                     portal_positions.append((x, y))
                     _mark_factory("portal")
                     continue
-                params = cast(Dict[str, Any], token.get("params", {}) or {})
+                params = cast(dict[str, Any], token.get("params", {}) or {})
                 if ttype in ("box", "monster"):
                     if params.get("moving_axis") is not None:
                         uses_moving_axis = True
@@ -781,7 +781,7 @@ def _generate_level_code(cfg: EditorConfig) -> str:
     # Pair portals like the runtime does
     if "editor_portal_pairs" in st.session_state:
         pairs = cast(
-            List[Tuple[Tuple[int, int], Tuple[int, int]]],
+            list[tuple[tuple[int, int], tuple[int, int]]],
             st.session_state["editor_portal_pairs"],
         )
     else:
@@ -791,7 +791,7 @@ def _generate_level_code(cfg: EditorConfig) -> str:
     unpaired = [pos for pos in portal_positions if pos not in paired_positions]
 
     # Build imports (only what we need)
-    lines: List[str] = []
+    lines: list[str] = []
     append = lines.append
     append("# Auto-generated by Grid Universe Level Editor")
     append("from grid_universe.levels.grid import Level")
@@ -918,8 +918,8 @@ def _make_env(cfg: EditorConfig) -> GridUniverseEnv:
 # -----------------------------
 # Default Parameter Helpers (avoid KeyErrors)
 # -----------------------------
-def _default_tool_params(tool_key: str) -> Dict[str, Any]:
-    defaults: Dict[str, Dict[str, Any]] = {
+def _default_tool_params(tool_key: str) -> dict[str, Any]:
+    defaults: dict[str, dict[str, Any]] = {
         "floor": {"cost": 1},
         "agent": {"health": 5},
         "coin": {"reward": None},
@@ -952,7 +952,7 @@ def _default_tool_params(tool_key: str) -> Dict[str, Any]:
 
 register_level_source(
     LevelSource(
-        name="Level Editor",
+        name="Grid Universe Level Editor Example",
         config_type=EditorConfig,
         initial_config=_default_editor_config,
         build_config=build_editor_config,

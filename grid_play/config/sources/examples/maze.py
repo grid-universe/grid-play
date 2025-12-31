@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import List, Tuple
 import streamlit as st
 
 from grid_universe.gym_env import GridUniverseEnv
@@ -23,8 +22,8 @@ from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
 from grid_universe.objectives import OBJECTIVE_FN_REGISTRY, default_objective_fn
 from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
 
-from .base import BaseConfig, LevelSource, register_level_source
-from ..shared_ui import texture_map_section, seed_section
+from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
+from grid_play.config.shared_ui import seed_section, texture_map_section
 
 
 # -----------------------------
@@ -43,10 +42,10 @@ class MazeConfig(BaseConfig):
     movement_cost: int
     required_item_reward: int
     rewardable_item_reward: int
-    boxes: List[BoxSpec]
-    powerups: List[PowerupSpec]
-    hazards: List[HazardSpec]
-    enemies: List[EnemySpec]
+    boxes: list[BoxSpec]
+    powerups: list[PowerupSpec]
+    hazards: list[HazardSpec]
+    enemies: list[EnemySpec]
     wall_percentage: float
     move_fn: MoveFn
     objective_fn: ObjectiveFn
@@ -81,7 +80,7 @@ def _default_maze_config() -> MazeConfig:
 # -----------------------------
 # UI Helpers
 # -----------------------------
-def _maze_size_section(cfg: MazeConfig) -> Tuple[int, int, float, int]:
+def _maze_size_section(cfg: MazeConfig) -> tuple[int, int, float, int]:
     st.subheader("Maze Size & Structure")
     width = st.slider("Maze width", 6, 30, cfg.width, key="width")
     height = st.slider("Maze height", 6, 30, cfg.height, key="height")
@@ -110,7 +109,7 @@ def _run_section(cfg: MazeConfig) -> int | None:
     return int(tl) if int(tl) > 0 else None
 
 
-def _items_section(cfg: MazeConfig) -> Tuple[int, int, int, int]:
+def _items_section(cfg: MazeConfig) -> tuple[int, int, int, int]:
     st.subheader("Items & Rewards")
     num_required_items = st.slider(
         "Required Items", 0, 10, cfg.num_required_items, key="num_required_items"
@@ -143,20 +142,20 @@ def _agent_section(cfg: MazeConfig) -> int:
     return st.slider("Agent Health", 1, 30, cfg.health, key="health")
 
 
-def _doors_portals_section(cfg: MazeConfig) -> Tuple[int, int]:
+def _doors_portals_section(cfg: MazeConfig) -> tuple[int, int]:
     st.subheader("Doors, Portals")
     num_portals = st.slider("Portals (pairs)", 0, 5, cfg.num_portals, key="num_portals")
     num_doors = st.slider("Doors", 0, 4, cfg.num_doors, key="num_doors")
     return num_portals, num_doors
 
 
-def _boxes_section(cfg: MazeConfig) -> List[BoxSpec]:
+def _boxes_section(cfg: MazeConfig) -> list[BoxSpec]:
     st.subheader("Boxes")
     boxes = list(cfg.boxes) if cfg.boxes else list(DEFAULT_BOXES)
     box_count = st.number_input(
         "Number of boxes", min_value=0, value=len(boxes), key="box_count"
     )
-    edited: List[BoxSpec] = []
+    edited: list[BoxSpec] = []
     for idx in range(box_count):
         pushable_default = boxes[idx][0] if idx < len(boxes) else True
         speed_default = boxes[idx][1] if idx < len(boxes) else 0
@@ -174,9 +173,9 @@ def _boxes_section(cfg: MazeConfig) -> List[BoxSpec]:
     return edited
 
 
-def _hazards_section() -> List[HazardSpec]:
+def _hazards_section() -> list[HazardSpec]:
     st.subheader("Hazards")
-    hazards: List[HazardSpec] = []
+    hazards: list[HazardSpec] = []
     for hazard_type, hazard_damage, hazard_lethal in DEFAULT_HAZARDS:
         c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
@@ -205,9 +204,9 @@ def _hazards_section() -> List[HazardSpec]:
     return hazards
 
 
-def _powerups_section() -> List[PowerupSpec]:
+def _powerups_section() -> list[PowerupSpec]:
     st.subheader("Powerups")
-    powerups: List[PowerupSpec] = []
+    powerups: list[PowerupSpec] = []
     for idx, (
         effect_type,
         limit_type_default,
@@ -279,13 +278,13 @@ def _powerups_section() -> List[PowerupSpec]:
     return powerups
 
 
-def _enemies_section(cfg: MazeConfig) -> List[EnemySpec]:
+def _enemies_section(cfg: MazeConfig) -> list[EnemySpec]:
     st.subheader("Enemies")
     enemies = list(cfg.enemies) if cfg.enemies else list(DEFAULT_ENEMIES)
     enemy_count = st.number_input(
         "Number of enemies", min_value=0, value=len(enemies), key="enemy_count"
     )
-    edited: List[EnemySpec] = []
+    edited: list[EnemySpec] = []
     for idx in range(enemy_count):
         dmg_default = enemies[idx][0] if idx < len(enemies) else 3
         lethal_default = enemies[idx][1] if idx < len(enemies) else False
@@ -379,7 +378,7 @@ def build_maze_config(current: object) -> MazeConfig:
     objective_fn = _objective_section(base)
     turn_limit = _run_section(base)
     seed = seed_section(key="maze_seed")
-    texture = texture_map_section(base)  # type: ignore[arg-type]
+    texture = texture_map_section(base)
     return MazeConfig(
         width=width,
         height=height,
@@ -414,7 +413,7 @@ def _make_env(cfg: MazeConfig) -> GridUniverseEnv:
 
 register_level_source(
     LevelSource(
-        name="Procedural Maze",
+        name="Grid Universe Procedural Maze Example",
         config_type=MazeConfig,
         initial_config=_default_maze_config,
         build_config=build_maze_config,
