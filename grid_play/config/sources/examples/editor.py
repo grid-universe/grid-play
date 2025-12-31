@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Any, cast
+from typing import Any
 
 import streamlit as st
 
-from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
-from grid_universe.objectives import (
-    OBJECTIVE_FN_REGISTRY,
-    default_objective_fn,
-)
-from grid_universe.levels.grid import Level
+from grid_universe.components.properties import MovingAxis
 from grid_universe.levels.factories import (
     create_agent,
     create_box,
@@ -28,936 +22,249 @@ from grid_universe.levels.factories import (
     create_speed_effect,
     create_wall,
 )
-from grid_universe.components.properties import MovingAxis
-from grid_universe.levels.convert import to_state
-from grid_universe.gym_env import GridUniverseEnv
-from grid_universe.renderer.texture import (
-    DEFAULT_TEXTURE_MAP,
-    TextureMap,
-    TextureRenderer,
-)
-from grid_universe.state import State
-from grid_universe.types import MoveFn, ObjectiveFn
-
-from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
-from grid_play.config.shared_ui import texture_map_section
+from grid_play.config.sources.base import register_level_source
+from grid_play.config.sources.level_editor import ToolSpec, make_level_editor_source
 
 
-"""Streamlit interactive level editor source.
-
-Provides an editing UI where the user selects an entity factory + its
-parameters, then clicks cells in a grid to place / replace entities.
-The current layout is converted to a ``State`` via the mutable Level/Entity
-API (``levels.Level`` + ``factories`` + ``levels.convert.to_state``) and
-rendered live so users get immediate feedback.
-
-Design constraints:
-  * Keep config immutable (dataclass frozen) so it fits existing pattern.
-  * Maintain a working mutable grid in ``st.session_state`` while editing;
-    when ``build_config`` returns it snapshots that grid into an immutable
-    tuple structure inside ``EditorConfig``.
-  * Palette driven: choose a *tool* (entity type or eraser) then click cells.
-  * Each cell stores a list of entity tokens (floor + zero/one foreground objects).
-  * Always ensure a floor tile exists for rendering consistency.
-  * Supports parameterized factories (health for agent, key id, damage, etc.).
-  * Portal pairing: user selects Portal tool and clicks two cells in sequence
-    to pair them (subsequent even count clicks continue pairing).
-"""
+# ---------- Parameter UIs ----------
 
 
-# -----------------------------
-# Config Dataclass
-# -----------------------------
-@dataclass(frozen=True)
-class EditorConfig(BaseConfig):
-    width: int
-    height: int
-    turn_limit: int | None
-    move_fn: MoveFn
-    objective_fn: ObjectiveFn
-    render_texture_map: TextureMap
-    # Immutable snapshot of authored grid: grid[y][x] -> list of palette tokens (dict)
-    # Each token dict: {"type": str, "params": {..}}. We rebuild EntitySpecs on play.
-    grid_tokens: tuple[tuple[tuple[dict[str, Any], ...], ...], ...]
+def agent_params() -> dict[str, Any]:
+    return {"health": int(st.number_input("Health", 1, 99, 5, key="agent_health"))}
 
 
-def _default_editor_config() -> EditorConfig:
-    width, height = 9, 7
-    # Initial empty grid tokens (floors only)
-    base_row: tuple[tuple[dict[str, Any], ...], ...] = tuple(
-        tuple(({"type": "floor", "params": {"cost": 1}},)) for _ in range(width)
-    )
-    grid_tokens = tuple(base_row for _ in range(height))
-    return EditorConfig(
-        width=width,
-        height=height,
-        turn_limit=None,
-        move_fn=default_move_fn,
-        objective_fn=default_objective_fn,
-        seed=None,
-        render_texture_map=DEFAULT_TEXTURE_MAP,
-        grid_tokens=grid_tokens,
-    )
+def floor_params() -> dict[str, Any]:
+    return {"cost": int(st.number_input("Move Cost", 1, 99, 1, key="floor_cost"))}
 
 
-# -----------------------------
-# Palette Definition
-# -----------------------------
-class ToolSpec:
-    def __init__(
-        self,
-        label: str,
-        builder: Callable[[dict[str, Any]], Any] | None,
-        param_ui: Callable[[], dict[str, Any]] | None = None,
-        icon: str = "",
-        multi_place: bool = False,
-        description: str = "",
-    ) -> None:
-        self.label = label
-        self.builder = builder  # returns EntitySpec OR list[EntitySpec]
-        self.param_ui = param_ui  # returns params dict
-        self.icon = icon
-        self.multi_place = multi_place
-        self.description = description
+def coin_params() -> dict[str, Any]:
+    reward = int(st.number_input("Reward (0 = none)", 0, 999, 0, key="coin_reward"))
+    return {"reward": reward if reward > 0 else None}
 
 
-def _agent_params() -> dict[str, Any]:
-    health = st.number_input("Health", 1, 99, 5, key="agent_health")
-    return {"health": int(health)}
+def core_params() -> dict[str, Any]:
+    reward = int(st.number_input("Reward (0 = none)", 0, 999, 10, key="core_reward"))
+    required = bool(st.checkbox("Required?", value=True, key="core_required"))
+    return {"reward": reward if reward > 0 else None, "required": required}
 
 
-def _coin_params() -> dict[str, Any]:
-    reward = st.number_input("Reward (0 = none)", 0, 999, 0, key="coin_reward")
-    return {"reward": int(reward) if reward > 0 else None}
+def key_params() -> dict[str, Any]:
+    key_id = st.text_input("Key ID", value="A", key="key_id").strip() or "A"
+    return {"key_id": key_id}
 
 
-def _core_params() -> dict[str, Any]:
-    reward = st.number_input("Reward (0 = none)", 0, 999, 10, key="core_reward")
-    required = st.checkbox("Required?", value=True, key="core_required")
-    return {"reward": int(reward) if reward > 0 else None, "required": bool(required)}
+def door_params() -> dict[str, Any]:
+    key_id = st.text_input("Door Key ID", value="A", key="door_key_id").strip() or "A"
+    return {"key_id": key_id}
 
 
-def _key_params() -> dict[str, Any]:
-    key_id = st.text_input("Key ID", value="A", key="key_id")
-    return {"key_id": key_id or "A"}
-
-
-def _door_params() -> dict[str, Any]:
-    key_id = st.text_input("Door Key ID", value="A", key="door_key_id")
-    return {"key_id": key_id or "A"}
-
-
-def _movement_params(kind: str) -> dict[str, Any]:
-    """Shared UI for movement (axis, direction, bounce, speed).
-
-    kind: prefix for Streamlit widget keys to avoid collisions.
-    Returns dict with moving_* keys expected by factories.
-    """
+def moving_params(prefix: str) -> dict[str, Any]:
     axis_label = st.selectbox(
-        "Axis",
-        ["None", "Horizontal", "Vertical"],
-        key=f"{kind}_move_axis",
-        help="Movement axis (None = static).",
+        "Axis", ["None", "Horizontal", "Vertical"], key=f"{prefix}_move_axis"
     )
-    axis: MovingAxis | None
+    axis = None
     if axis_label == "Horizontal":
         axis = MovingAxis.HORIZONTAL
     elif axis_label == "Vertical":
         axis = MovingAxis.VERTICAL
-    else:
-        axis = None
     direction = st.selectbox(
         "Direction",
         ["+1 (forward/right/down)", "-1 (back/left/up)"],
-        index=0,
-        key=f"{kind}_move_dir",
+        key=f"{prefix}_move_dir",
     )
     dir_val = 1 if direction.startswith("+1") else -1
-    bounce = st.checkbox(
-        "Bounce (reverse at ends)", value=True, key=f"{kind}_move_bounce"
+    bounce = bool(
+        st.checkbox("Bounce (reverse at ends)", value=True, key=f"{prefix}_move_bounce")
     )
-    speed = st.number_input("Speed (tiles / step)", 1, 10, 1, key=f"{kind}_move_speed")
+    speed = int(
+        st.number_input("Speed (tiles / step)", 1, 10, 1, key=f"{prefix}_move_speed")
+    )
     return {
         "moving_axis": axis,
         "moving_direction": dir_val if axis is not None else None,
-        "moving_bounce": bool(bounce),
-        "moving_speed": int(speed),
+        "moving_bounce": bounce,
+        "moving_speed": speed,
     }
 
 
-def _monster_params() -> dict[str, Any]:
-    damage = st.number_input("Damage", 1, 50, 3, key="monster_dmg")
-    lethal = st.checkbox("Lethal?", value=False, key="monster_lethal")
-    st.markdown("**Movement**")
-    move = _movement_params("monster")
-    return {"damage": int(damage), "lethal": bool(lethal), **move}
+def box_params() -> dict[str, Any]:
+    pushable = bool(st.checkbox("Pushable?", value=True, key="box_pushable"))
+    return {"pushable": pushable, **moving_params("box")}
 
 
-def _box_params() -> dict[str, Any]:
-    pushable = st.checkbox("Pushable?", value=True, key="box_pushable")
-    st.markdown("**Movement**")
-    move = _movement_params("box")
-    return {"pushable": bool(pushable), **move}
+def monster_params() -> dict[str, Any]:
+    damage = int(st.number_input("Damage", 1, 50, 3, key="monster_dmg"))
+    lethal = bool(st.checkbox("Lethal?", value=False, key="monster_lethal"))
+    return {"damage": damage, "lethal": lethal, **moving_params("monster")}
 
 
-def _hazard_params(kind: str) -> Callable[[], dict[str, Any]]:
-    def _inner() -> dict[str, Any]:
-        damage = st.number_input(
-            "Damage",
-            0,
-            50,
-            2,
-            key=f"{kind}_damage",
-            help="Amount of health lost on contact.",
-        )
-        lethal_default = kind == "lava"
-        lethal = st.checkbox(
-            "Lethal?",
-            value=lethal_default,
-            key=f"{kind}_lethal",
-            help="If checked, instantly defeats agents regardless of damage.",
-        )
-        return {"damage": int(damage), "lethal": bool(lethal)}
-
-    return _inner
-
-
-def _floor_params() -> dict[str, Any]:
-    cost = st.number_input(
-        "Move Cost",
-        1,
-        99,
-        1,
-        key="floor_cost",
-        help="Energy / cost units required to traverse this tile.",
+def hazard_params(kind: str) -> dict[str, Any]:
+    default_lethal = kind == "lava"
+    lethal = bool(st.checkbox("Lethal?", value=default_lethal, key=f"{kind}_lethal"))
+    damage = (
+        0 if lethal else int(st.number_input("Damage", 1, 50, 2, key=f"{kind}_damage"))
     )
-    return {"cost": int(cost)}
+    return {"damage": damage, "lethal": lethal}
 
 
-def _speed_params() -> dict[str, Any]:
-    mult = st.number_input("Multiplier", 2, 10, 2, key="speed_mult")
-    time = st.number_input("Time (0=∞)", 0, 999, 0, key="speed_time")
-    usage = st.number_input("Usage (0=∞)", 0, 999, 0, key="speed_usage")
-    return {
-        "multiplier": int(mult),
-        "time": int(time) if time > 0 else None,
-        "usage": int(usage) if usage > 0 else None,
-    }
+def speed_params() -> dict[str, Any]:
+    mult = int(st.number_input("Multiplier", 2, 10, 2, key="speed_mult"))
+    time = int(st.number_input("Time (0=∞)", 0, 999, 0, key="speed_time"))
+    usage = int(st.number_input("Usage (0=∞)", 0, 999, 0, key="speed_usage"))
+    return {"multiplier": mult, "time": (time or None), "usage": (usage or None)}
 
 
-def _limit_params(effect: str) -> dict[str, Any]:
-    time = st.number_input("Time (0=∞)", 0, 999, 0, key=f"{effect}_time")
-    usage = st.number_input("Usage (0=∞)", 0, 999, 0, key=f"{effect}_usage")
-    return {
-        "time": int(time) if time > 0 else None,
-        "usage": int(usage) if usage > 0 else None,
-    }
+def limit_params(prefix: str) -> dict[str, Any]:
+    time = int(st.number_input("Time (0=∞)", 0, 999, 0, key=f"{prefix}_time"))
+    usage = int(st.number_input("Usage (0=∞)", 0, 999, 0, key=f"{prefix}_usage"))
+    return {"time": (time or None), "usage": (usage or None)}
 
+
+# ---------- Palette ----------
 
 PALETTE: dict[str, ToolSpec] = {
     "floor": ToolSpec(
-        "Floor",
-        lambda p: create_floor(cost_amount=p.get("cost", 1)),
-        _floor_params,
+        label="Floor",
         icon="⬜",
+        builder=lambda p: create_floor(cost_amount=int(p.get("cost", 1))),
+        param_ui=floor_params,
     ),
-    "wall": ToolSpec("Wall", lambda p: create_wall(), icon="🟫"),
+    "wall": ToolSpec(
+        label="Wall",
+        icon="🟫",
+        builder=lambda _p: create_wall(),
+    ),
     "agent": ToolSpec(
-        "Agent", lambda p: create_agent(health=p["health"]), _agent_params, icon="😊"
+        label="Agent",
+        icon="😊",
+        builder=lambda p: create_agent(health=int(p.get("health", 5))),
+        param_ui=agent_params,
     ),
-    "exit": ToolSpec("Exit", lambda p: create_exit(), icon="🏁"),
+    "exit": ToolSpec(
+        label="Exit",
+        icon="🏁",
+        builder=lambda _p: create_exit(),
+    ),
     "coin": ToolSpec(
-        "Coin", lambda p: create_coin(reward=p["reward"]), _coin_params, icon="🪙"
+        label="Coin",
+        icon="🪙",
+        builder=lambda p: create_coin(reward=p.get("reward")),
+        param_ui=coin_params,
     ),
-    "core": ToolSpec("Core", lambda p: create_core(**p), _core_params, icon="⭐"),
-    "key": ToolSpec("Key", lambda p: create_key(p["key_id"]), _key_params, icon="🔑"),
+    "core": ToolSpec(
+        label="Core",
+        icon="⭐",
+        builder=lambda p: create_core(
+            reward=p.get("reward"),
+            required=bool(p.get("required", True)),
+        ),
+        param_ui=core_params,
+    ),
+    "key": ToolSpec(
+        label="Key",
+        icon="🔑",
+        builder=lambda p: create_key(p.get("key_id", "A")),
+        param_ui=key_params,
+    ),
     "door": ToolSpec(
-        "Door", lambda p: create_door(p["key_id"]), _door_params, icon="🚪"
+        label="Door",
+        icon="🚪",
+        builder=lambda p: create_door(p.get("key_id", "A")),
+        param_ui=door_params,
     ),
     "portal": ToolSpec(
-        "Portal",
-        lambda p: create_portal(),
+        label="Portal",
         icon="🔵",
-        description="Click two cells sequentially to pair portals.",
+        builder=lambda _p: create_portal(),
+        description="Click two cells sequentially to pair.",
     ),
     "box": ToolSpec(
-        "Box",
-        lambda p: create_box(
-            pushable=p["pushable"],
+        label="Box",
+        icon="📦",
+        builder=lambda p: create_box(
+            pushable=bool(p.get("pushable", True)),
             moving_axis=p.get("moving_axis"),
             moving_direction=p.get("moving_direction"),
-            moving_bounce=p.get("moving_bounce", True),
-            moving_speed=p.get("moving_speed", 1),
+            moving_bounce=bool(p.get("moving_bounce", True)),
+            moving_speed=int(p.get("moving_speed", 1)),
         ),
-        _box_params,
-        icon="📦",
+        param_ui=box_params,
     ),
     "monster": ToolSpec(
-        "Monster",
-        lambda p: create_monster(
-            damage=p["damage"],
-            lethal=p["lethal"],
+        label="Monster",
+        icon="👹",
+        builder=lambda p: create_monster(
+            damage=int(p.get("damage", 3)),
+            lethal=bool(p.get("lethal", False)),
             moving_axis=p.get("moving_axis"),
             moving_direction=p.get("moving_direction"),
-            moving_bounce=p.get("moving_bounce", True),
-            moving_speed=p.get("moving_speed", 1),
+            moving_bounce=bool(p.get("moving_bounce", True)),
+            moving_speed=int(p.get("moving_speed", 1)),
         ),
-        _monster_params,
-        icon="👹",
+        param_ui=monster_params,
     ),
     "spike": ToolSpec(
-        "Spike",
-        lambda p: create_hazard("spike", p["damage"], p["lethal"]),
-        _hazard_params("spike"),
+        label="Spike",
         icon="⚓",
+        builder=lambda p: create_hazard(
+            "spike",
+            int(p.get("damage", 2)),
+            bool(p.get("lethal", False)),
+        ),
+        param_ui=lambda: hazard_params("spike"),
     ),
     "lava": ToolSpec(
-        "Lava",
-        lambda p: create_hazard("lava", p["damage"], p.get("lethal", True)),
-        _hazard_params("lava"),
+        label="Lava",
         icon="🔥",
+        builder=lambda p: create_hazard(
+            "lava",
+            int(p.get("damage", 2)),
+            bool(p.get("lethal", True)),
+        ),
+        param_ui=lambda: hazard_params("lava"),
     ),
     "speed": ToolSpec(
-        "Speed", lambda p: create_speed_effect(**p), _speed_params, icon="🥾"
+        label="Speed",
+        icon="🥾",
+        builder=lambda p: create_speed_effect(
+            multiplier=int(p.get("multiplier", 2)),
+            time=p.get("time"),
+            usage=p.get("usage"),
+        ),
+        param_ui=speed_params,
     ),
     "shield": ToolSpec(
-        "Shield",
-        lambda p: create_immunity_effect(time=p["time"], usage=p["usage"]),
-        param_ui=lambda: _limit_params("shield"),
+        label="Shield",
         icon="🛡️",
+        builder=lambda p: create_immunity_effect(
+            time=p.get("time"),
+            usage=p.get("usage"),
+        ),
+        param_ui=lambda: limit_params("shield"),
     ),
     "ghost": ToolSpec(
-        "Ghost",
-        lambda p: create_phasing_effect(time=p["time"], usage=p["usage"]),
-        param_ui=lambda: _limit_params("ghost"),
+        label="Ghost",
         icon="👻",
+        builder=lambda p: create_phasing_effect(
+            time=p.get("time"),
+            usage=p.get("usage"),
+        ),
+        param_ui=lambda: limit_params("ghost"),
     ),
-    "erase": ToolSpec("Eraser", None, icon="␡"),
+    # Eraser handled specially by the editor engine (place_tool); builder not used
+    "erase": ToolSpec(
+        label="Eraser",
+        icon="␡",
+        builder=lambda _p: create_floor(cost_amount=1),
+        description="Reset cell to floor-only.",
+    ),
 }
 
-
-# -----------------------------
-# Working Grid Helpers
-# -----------------------------
-def _ensure_working_grid(width: int, height: int) -> list[list[list[dict[str, Any]]]]:
-    key = "editor_working_grid"
-    if key not in st.session_state:
-        st.session_state[key] = [
-            [[{"type": "floor", "params": {"cost": 1}}] for _ in range(width)]
-            for _ in range(height)
-        ]
-    return cast(list[list[list[dict[str, Any]]]], st.session_state[key])
-
-
-def _place_tool(
-    tool_key: str,
-    x: int,
-    y: int,
-    grid: list[list[list[dict[str, Any]]]],
-    params: dict[str, Any] | None = None,
-) -> None:
-    def get_cell() -> list[dict[str, Any]]:
-        return grid[y][x]
-
-    def set_cell(entries: list[dict[str, Any]]) -> None:
-        grid[y][x] = entries
-
-    def get_floor(cell: list[dict[str, Any]]) -> dict[str, Any] | None:
-        return next((t for t in cell if t.get("type") == "floor"), None)
-
-    def default_floor(cost: int = 1) -> dict[str, Any]:
-        return {"type": "floor", "params": {"cost": cost}}
-
-    def ensure_floor(
-        cell: list[dict[str, Any]], default_cost: int = 1
-    ) -> dict[str, Any]:
-        floor_entry = get_floor(cell)
-        return floor_entry if floor_entry is not None else default_floor(default_cost)
-
-    cell = get_cell()
-
-    if tool_key == "erase":
-        # Retain floor only (create default floor if missing to avoid StopIteration)
-        base_floor = ensure_floor(cell, 1)
-        set_cell([base_floor])
-        return
-
-    if tool_key == "floor":
-        # Create or update floor without duplicating
-        floor_opt: dict[str, Any] | None = get_floor(cell)
-        if floor_opt is None:
-            cost = params.get("cost", 1) if params else 1
-            set_cell([default_floor(cost)])
-        else:
-            if params and "cost" in params:
-                floor_opt["params"]["cost"] = params["cost"]
-        return
-
-    # Non-floor tools: ensure floor, reset cell to floor-only, then append tool
-    base_floor = ensure_floor(cell, 1)
-    set_cell([base_floor, {"type": tool_key, "params": params or {}}])
-
-
-def _pair_portals(grid: list[list[list[dict[str, Any]]]]) -> None:
-    portals: list[tuple[int, int]] = []
-    for yy, row in enumerate(grid):
-        for xx, cell in enumerate(row):
-            if any(t["type"] == "portal" for t in cell):
-                portals.append((xx, yy))
-    st.session_state["editor_portal_pairs"] = [
-        (portals[i], portals[i + 1]) for i in range(0, len(portals) - 1, 2)
-    ]
-
-
-# -----------------------------
-# Rebuild Level from snapshot tokens
-# -----------------------------
-def _build_level_from_tokens(cfg: EditorConfig) -> Level:
-    level = Level(
-        width=cfg.width,
-        height=cfg.height,
-        move_fn=cfg.move_fn,
-        objective_fn=cfg.objective_fn,
-        seed=cfg.seed,
-        turn_limit=cfg.turn_limit,
-    )
-
-    portal_specs: dict[tuple[int, int], Any] = {}
-    grid_tokens = cfg.grid_tokens
-    for y in range(cfg.height):
-        for x in range(cfg.width):
-            tokens = list(grid_tokens[y][x])
-            for token in tokens:
-                ttype = token["type"]
-                if ttype == "erase":
-                    continue
-                builder = PALETTE.get(ttype, None)
-                if builder is None:
-                    continue
-                if builder.builder is None:
-                    continue
-                params = cast(dict[str, Any], token.get("params", {}) or {})
-                # merge defaults for safety
-                defaults = _default_tool_params(ttype)
-                merged: dict[str, Any] = {**defaults, **params}
-                try:
-                    spec = builder.builder(merged)
-                except Exception:
-                    # Fallback: try with defaults only
-                    try:
-                        spec = builder.builder(defaults)
-                    except Exception:
-                        continue
-                level.add((x, y), spec)
-                if ttype == "portal":
-                    portal_specs[(x, y)] = spec
-
-    # Pair portals using stored pairs if available else sequential reading order
-    pairs: list[tuple[tuple[int, int], tuple[int, int]]] = []
-    if "editor_portal_pairs" in st.session_state:
-        pairs = cast(
-            list[tuple[tuple[int, int], tuple[int, int]]],
-            st.session_state["editor_portal_pairs"],
-        )
-    else:
-        ordered = list(portal_specs.keys())
-        pairs = [(ordered[i], ordered[i + 1]) for i in range(0, len(ordered) - 1, 2)]
-    for a_pos, b_pos in pairs:
-        a = portal_specs.get(a_pos)
-        b = portal_specs.get(b_pos)
-        if a is not None and b is not None and a is not b:
-            # Mirror the factory pairing semantics
-            try:
-                a.portal_pair_ref = b
-                if getattr(b, "portal_pair_ref", None) is None:
-                    b.portal_pair_ref = a
-            except Exception:
-                pass
-    return level
-
-
-# -----------------------------
-# UI Builder (3-column layout)
-# -----------------------------
-def build_editor_config(current: object) -> EditorConfig:
-    base = current if isinstance(current, EditorConfig) else _default_editor_config()
-    st.info("Interactive level editor.", icon="🛠️")
-
-    # Size + rules row
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-    with c1:
-        width = st.number_input("Width", 3, 30, base.width, key="editor_width")
-    with c2:
-        height = st.number_input("Height", 3, 30, base.height, key="editor_height")
-    with c3:
-        seed = st.number_input("Seed", 0, None, 0, key="editor_seed")
-    with c4:
-        tl_val = st.number_input(
-            "Turn limit (0=∞)",
-            0,
-            9999,
-            value=int(base.turn_limit or 0),
-            key="editor_turn_limit",
-        )
-        turn_limit = int(tl_val) if int(tl_val) > 0 else None
-    move_fn = _move_fn_section(base)
-    objective_fn = _objective_fn_section(base)
-    texture_map = texture_map_section(base)
-
-    # Working grid (resize if needed)
-    grid = _ensure_working_grid(int(width), int(height))
-    if len(grid) != height or len(grid[0]) != width:
-        new_grid: list[list[list[dict[str, Any]]]] = [
-            [[{"type": "floor", "params": {"cost": 1}}] for _ in range(int(width))]
-            for _ in range(int(height))
-        ]
-        for yy in range(min(int(height), len(grid))):
-            for xx in range(min(int(width), len(grid[0]))):
-                new_grid[yy][xx] = grid[yy][xx]
-        st.session_state["editor_working_grid"] = new_grid
-        grid = new_grid
-
-    palette_col, grid_col, preview_col = st.columns([1, 2, 2])
-
-    # Palette
-    with palette_col:
-        st.subheader("Palette")
-        tool_keys = list(PALETTE.keys())
-        tool_labels = [f"{PALETTE[k].icon} {PALETTE[k].label}" for k in tool_keys]
-        selected_idx = st.radio(
-            "**Entity**",
-            options=list(range(len(tool_keys))),
-            format_func=lambda i: tool_labels[int(i)],
-            key="editor_tool_select",
-        )
-        selected_tool_key = tool_keys[selected_idx]
-        tspec = PALETTE[selected_tool_key]
-        current_params: dict[str, Any] = {}
-        if tspec.param_ui:
-            st.markdown("**Parameters**")
-            try:
-                current_params = tspec.param_ui() or {}
-            except Exception:
-                current_params = {}
-        if tspec.description:
-            st.caption(tspec.description)
-
-    # Grid editing
-    with grid_col:
-        st.subheader("Grid")
-        for yy in range(int(height)):
-            cols = st.columns(int(width))
-            for xx in range(int(width)):
-                cell = grid[yy][xx]
-                entries = [t for t in cell if t["type"] != "floor"]
-                label = "".join(
-                    PALETTE[entry["type"].lower()].icon
-                    for entry in entries
-                    if entry["type"].lower() in PALETTE
-                )
-                if cols[xx].button(
-                    label or PALETTE["floor"].icon, key=f"editor_cell_{xx}_{yy}"
-                ):
-                    _place_tool(selected_tool_key, xx, yy, grid, current_params)
-                    if selected_tool_key == "portal":
-                        _pair_portals(grid)
-                    st.rerun()
-
-    # Preview
-    with preview_col:
-        st.subheader("Preview")
-        snap_tokens_preview: tuple[tuple[tuple[dict[str, Any], ...], ...], ...] = tuple(
-            tuple(tuple(cell) for cell in row) for row in grid
-        )
-        temp_cfg = EditorConfig(
-            width=int(width),
-            height=int(height),
-            turn_limit=turn_limit,
-            move_fn=move_fn,
-            objective_fn=objective_fn,
-            seed=seed,
-            render_texture_map=texture_map,
-            grid_tokens=snap_tokens_preview,
-        )
-        try:
-            lvl = _build_level_from_tokens(temp_cfg)
-            state = to_state(lvl)
-            renderer = TextureRenderer(texture_map=texture_map)
-            img = renderer.render(state)
-            st.image(img, use_container_width=True)
-        except Exception as e:
-            msg = str(e) or e.__class__.__name__
-            st.error(f"Preview failed: {msg}")
-
-    # Live code export
-    with st.expander("Export as Python", expanded=False):
-        code_str = _generate_level_code(temp_cfg)
-        st.code(code_str, language="python")
-        st.download_button(
-            "Download generated_level.py",
-            data=code_str,
-            file_name="generated_level.py",
-            mime="text/x-python",
-        )
-
-    # Final snapshot config
-    snap_tokens: tuple[tuple[tuple[dict[str, Any], ...], ...], ...] = tuple(
-        tuple(tuple(cell) for cell in row) for row in grid
-    )
-    return EditorConfig(
-        width=int(width),
-        height=int(height),
-        turn_limit=turn_limit,
-        move_fn=move_fn,
-        objective_fn=objective_fn,
-        seed=seed,
-        render_texture_map=texture_map,
-        grid_tokens=snap_tokens,
-    )
-
-
-def _registry_name_by_value(
-    reg: dict[str, Any], value: Any, default_key: str | None = None
-) -> str:
-    for k, v in reg.items():
-        if v is value:
-            return k
-    return default_key or next(iter(reg.keys()))
-
-
-def _py_axis(axis: MovingAxis | None) -> str:
-    if axis is None:
-        return "None"
-    if axis == MovingAxis.HORIZONTAL:
-        return "MovingAxis.HORIZONTAL"
-    if axis == MovingAxis.VERTICAL:
-        return "MovingAxis.VERTICAL"
-    return "None"
-
-
-def _factory_call_str(ttype: str, params: dict[str, Any]) -> str:
-    # Build factory call string for a single non-portal token
-    if ttype == "floor":
-        return f"create_floor(cost_amount={int(params.get('cost', 1))})"
-    if ttype == "wall":
-        return "create_wall()"
-    if ttype == "agent":
-        return f"create_agent(health={int(params.get('health', 5))})"
-    if ttype == "exit":
-        return "create_exit()"
-    if ttype == "coin":
-        reward = params.get("reward")
-        return (
-            f"create_coin(reward={repr(int(reward)) if reward is not None else 'None'})"
-        )
-    if ttype == "core":
-        reward = params.get("reward")
-        required = bool(params.get("required", True))
-        return f"create_core(reward={repr(int(reward)) if reward is not None else 'None'}, required={repr(required)})"
-    if ttype == "key":
-        return f"create_key({repr(params.get('key_id', 'A'))})"
-    if ttype == "door":
-        return f"create_door({repr(params.get('key_id', 'A'))})"
-    if ttype == "box":
-        return (
-            "create_box("
-            f"pushable={repr(bool(params.get('pushable', True)))}, "
-            f"moving_axis={_py_axis(params.get('moving_axis'))}, "
-            f"moving_direction={repr(params.get('moving_direction')) if params.get('moving_axis') is not None else 'None'}, "
-            f"moving_bounce={repr(bool(params.get('moving_bounce', True)))}, "
-            f"moving_speed={int(params.get('moving_speed', 1))}"
-            ")"
-        )
-    if ttype == "monster":
-        return (
-            "create_monster("
-            f"damage={int(params.get('damage', 3))}, "
-            f"lethal={repr(bool(params.get('lethal', False)))}, "
-            f"moving_axis={_py_axis(params.get('moving_axis'))}, "
-            f"moving_direction={repr(params.get('moving_direction')) if params.get('moving_axis') is not None else 'None'}, "
-            f"moving_bounce={repr(bool(params.get('moving_bounce', True)))}, "
-            f"moving_speed={int(params.get('moving_speed', 1))}"
-            ")"
-        )
-    if ttype == "spike":
-        return (
-            "create_hazard("
-            '"spike", '
-            f"{int(params.get('damage', 2))}, "
-            f"{repr(bool(params.get('lethal', False)))}"
-            ")"
-        )
-    if ttype == "lava":
-        return (
-            "create_hazard("
-            '"lava", '
-            f"{int(params.get('damage', 2))}, "
-            f"{repr(bool(params.get('lethal', True)))}"
-            ")"
-        )
-    if ttype == "speed":
-        time = params.get("time")
-        usage = params.get("usage")
-        return (
-            "create_speed_effect("
-            f"multiplier={int(params.get('multiplier', 2))}, "
-            f"time={repr(int(time)) if time is not None else 'None'}, "
-            f"usage={repr(int(usage)) if usage is not None else 'None'}"
-            ")"
-        )
-    if ttype == "shield":
-        time = params.get("time")
-        usage = params.get("usage")
-        return (
-            "create_immunity_effect("
-            f"time={repr(int(time)) if time is not None else 'None'}, "
-            f"usage={repr(int(usage)) if usage is not None else 'None'}"
-            ")"
-        )
-    if ttype == "ghost":
-        time = params.get("time")
-        usage = params.get("usage")
-        return (
-            "create_phasing_effect("
-            f"time={repr(int(time)) if time is not None else 'None'}, "
-            f"usage={repr(int(usage)) if usage is not None else 'None'}"
-            ")"
-        )
-    # fallback no-op
-    return "create_floor(cost_amount=1)"
-
-
-def _generate_level_code(cfg: EditorConfig) -> str:
-    move_key = _registry_name_by_value(MOVE_FN_REGISTRY, cfg.move_fn)
-    obj_key = _registry_name_by_value(OBJECTIVE_FN_REGISTRY, cfg.objective_fn)
-
-    # Collect portal positions and pairing, and group non-portal by factory call
-    portal_positions: list[tuple[int, int]] = []
-    grouped: dict[str, list[tuple[int, int]]] = {}
-    factories_used: dict[str, bool] = {}
-    uses_moving_axis = False
-
-    def _mark_factory(ttype: str) -> None:
-        name_map = {
-            "floor": "create_floor",
-            "wall": "create_wall",
-            "agent": "create_agent",
-            "exit": "create_exit",
-            "coin": "create_coin",
-            "core": "create_core",
-            "key": "create_key",
-            "door": "create_door",
-            "box": "create_box",
-            "monster": "create_monster",
-            "spike": "create_hazard",
-            "lava": "create_hazard",
-            "speed": "create_speed_effect",
-            "shield": "create_immunity_effect",
-            "ghost": "create_phasing_effect",
-            "portal": "create_portal",
-        }
-        fname = name_map.get(ttype)
-        if fname:
-            factories_used[fname] = True
-
-    for y in range(cfg.height):
-        for x in range(cfg.width):
-            for token in cfg.grid_tokens[y][x]:
-                ttype = token["type"]
-                if ttype == "erase":
-                    continue
-                if ttype == "portal":
-                    portal_positions.append((x, y))
-                    _mark_factory("portal")
-                    continue
-                params = cast(dict[str, Any], token.get("params", {}) or {})
-                if ttype in ("box", "monster"):
-                    if params.get("moving_axis") is not None:
-                        uses_moving_axis = True
-                call = _factory_call_str(ttype, params)
-                grouped.setdefault(call, []).append((x, y))
-                _mark_factory(ttype)
-
-    # Pair portals like the runtime does
-    if "editor_portal_pairs" in st.session_state:
-        pairs = cast(
-            list[tuple[tuple[int, int], tuple[int, int]]],
-            st.session_state["editor_portal_pairs"],
-        )
-    else:
-        ordered = list(portal_positions)
-        pairs = [(ordered[i], ordered[i + 1]) for i in range(0, len(ordered) - 1, 2)]
-    paired_positions = set(pos for pair in pairs for pos in pair)
-    unpaired = [pos for pos in portal_positions if pos not in paired_positions]
-
-    # Build imports (only what we need)
-    lines: list[str] = []
-    append = lines.append
-    append("# Auto-generated by Grid Universe Level Editor")
-    append("from grid_universe.levels.grid import Level")
-    if factories_used:
-        factory_imports = ", ".join(sorted(factories_used.keys()))
-        append(f"from grid_universe.levels.factories import {factory_imports}")
-    if uses_moving_axis:
-        append("from grid_universe.components.properties import MovingAxis")
-    append("from grid_universe.levels.convert import to_state")
-    append("from grid_universe.moves import MOVE_FN_REGISTRY")
-    append("from grid_universe.objectives import OBJECTIVE_FN_REGISTRY")
-    append("from grid_universe.gym_env import GridUniverseEnv")
-    append("")
-    append("def build_level() -> Level:")
-    turn_limit_arg = (
-        f", turn_limit={int(cfg.turn_limit)}" if cfg.turn_limit is not None else ""
-    )
-    append(
-        f"    level = Level(width={cfg.width}, height={cfg.height}, move_fn=MOVE_FN_REGISTRY[{repr(move_key)}], objective_fn=OBJECTIVE_FN_REGISTRY[{repr(obj_key)}], seed={repr(cfg.seed)}{turn_limit_arg})"
-    )
-    append("")
-    # Grouped non-portal adds using readable loops; no loop if single position
-    for call, positions in sorted(grouped.items(), key=lambda kv: kv[0]):
-        if len(positions) == 1:
-            x, y = positions[0]
-            append(f"    level.add(({x}, {y}), {call})")
-        else:
-            pos_list = ", ".join([f"({x}, {y})" for (x, y) in positions])
-            append(f"    for x, y in [{pos_list}]:")
-            append(f"        level.add((x, y), {call})")
-
-    # Portals
-    if pairs:
-        if len(pairs) == 1:
-            (ax, ay), (bx, by) = pairs[0]
-            append("    p1 = create_portal()")
-            append("    p2 = create_portal(pair=p1)")
-            append(f"    level.add(({ax}, {ay}), p1)")
-            append(f"    level.add(({bx}, {by}), p2)")
-        else:
-            pair_list = ", ".join(
-                [f"(({ax}, {ay}), ({bx}, {by}))" for (ax, ay), (bx, by) in pairs]
-            )
-            append(f"    for (ax, ay), (bx, by) in [{pair_list}]:")
-            append("        p1 = create_portal()")
-            append("        p2 = create_portal(pair=p1)")
-            append("        level.add((ax, ay), p1)")
-            append("        level.add((bx, by), p2)")
-    if unpaired:
-        if len(unpaired) == 1:
-            ux, uy = unpaired[0]
-            append(f"    level.add(({ux}, {uy}), create_portal())")
-        else:
-            unpaired_list = ", ".join([f"({ux}, {uy})" for (ux, uy) in unpaired])
-            append(f"    for x, y in [{unpaired_list}]:")
-            append("        level.add((x, y), create_portal())")
-
-    append("")
-    append("    return level")
-    append("")
-    append("def build_env() -> GridUniverseEnv:")
-    append("    def _initial_state_fn(**_):")
-    append("        return to_state(build_level())")
-    append("    state = _initial_state_fn()")
-    append(
-        "    return GridUniverseEnv(render_mode='rgb_array', initial_state_fn=_initial_state_fn, width=state.width, height=state.height)"
-    )
-    append("")
-    append("if __name__ == '__main__':")
-    append("    env = build_env()")
-    append("    img = env.render(mode='rgb_array')")
-    append("    if img is not None: img.show()")
-    return "\n".join(lines)
-
-
-def _move_fn_section(cfg: EditorConfig) -> MoveFn:
-    st.subheader("Movement Rule")
-    names = list(MOVE_FN_REGISTRY.keys())
-    current = next(
-        (k for k, v in MOVE_FN_REGISTRY.items() if v is cfg.move_fn), names[0]
-    )
-    label = st.selectbox(
-        "Move Function", names, index=names.index(current), key="editor_move_fn"
-    )
-    return MOVE_FN_REGISTRY[label]
-
-
-def _objective_fn_section(cfg: EditorConfig) -> ObjectiveFn:
-    st.subheader("Objective Rule")
-    names = list(OBJECTIVE_FN_REGISTRY.keys())
-    current = next(
-        (k for k, v in OBJECTIVE_FN_REGISTRY.items() if v is cfg.objective_fn),
-        names[0],
-    )
-    label = st.selectbox(
-        "Objective", names, index=names.index(current), key="editor_objective_fn"
-    )
-    return OBJECTIVE_FN_REGISTRY[label]
-
-
-def _make_env(cfg: EditorConfig) -> GridUniverseEnv:
-    # Rebuild Level -> State each env reset (ensures fresh IDs)
-    def _initial_state_fn(**_ignored: Any) -> State:
-        level = _build_level_from_tokens(cfg)
-        return to_state(level)
-
-    sample_state = _initial_state_fn()
-    # Validation: ensure at least one agent entity exists in the authored level.
-    # Without an agent the Gym environment will later fail when trying to pick
-    # the first agent id.
-    if not sample_state.agent:
-        raise ValueError(
-            "Level must contain an Agent. Use the 'Agent' tool in the palette to place one before starting."
-        )
-    return GridUniverseEnv(
-        render_mode="rgb_array",
-        initial_state_fn=_initial_state_fn,
-        width=sample_state.width,
-        height=sample_state.height,
-        render_texture_map=cfg.render_texture_map,
-    )
-
-
-# -----------------------------
-# Default Parameter Helpers (avoid KeyErrors)
-# -----------------------------
-def _default_tool_params(tool_key: str) -> dict[str, Any]:
-    defaults: dict[str, dict[str, Any]] = {
-        "floor": {"cost": 1},
-        "agent": {"health": 5},
-        "coin": {"reward": None},
-        "core": {"reward": 10, "required": True},
-        "key": {"key_id": "A"},
-        "door": {"key_id": "A"},
-        "monster": {
-            "damage": 3,
-            "lethal": False,
-            "moving_axis": None,
-            "moving_direction": None,
-            "moving_bounce": True,
-            "moving_speed": 1,
-        },
-        "box": {
-            "pushable": True,
-            "moving_axis": None,
-            "moving_direction": None,
-            "moving_bounce": True,
-            "moving_speed": 1,
-        },
-        "spike": {"damage": 2, "lethal": False},
-        "lava": {"damage": 2, "lethal": True},
-        "speed": {"multiplier": 2, "time": None, "usage": None},
-        "shield": {"time": None, "usage": None},
-        "ghost": {"time": None, "usage": None},
-    }
-    return defaults.get(tool_key, {}).copy()
-
+# ---------- Register LevelSource ----------
 
 register_level_source(
-    LevelSource(
+    make_level_editor_source(
         name="Grid Universe Level Editor Example",
-        config_type=EditorConfig,
-        initial_config=_default_editor_config,
-        build_config=build_editor_config,
-        make_env=_make_env,
+        palette=PALETTE,
     )
 )
-
-__all__ = ["EditorConfig"]

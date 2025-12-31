@@ -25,6 +25,7 @@ def make_env_and_reset(
     except ValueError as e:
         # Provide a user‑visible error (common case: missing agent in editor level)
         st.error(f"Environment creation failed: {e}")
+        st.stop()
         return
     obs, info = env.reset(seed=getattr(config, "seed", None))
     st.session_state["env"] = env
