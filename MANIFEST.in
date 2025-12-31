@@ -1,0 +1,12 @@
+# Include the license, readme, and type marker
+include LICENSE
+include README.md
+include grid_play/py.typed
+
+# Include the entire directory tree in the source distribution
+recursive-include grid_play *
+
+# Ensure no __pycache__ directories or compiled files are included
+prune **/__pycache__
+exclude **/*.py[co]
+exclude **/.DS_Store
