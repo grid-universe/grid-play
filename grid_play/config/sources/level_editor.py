@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, cast
+from enum import Enum
+from inspect import getmodule
+from typing import Any, Callable, Mapping
 
 import streamlit as st
 
@@ -9,23 +11,15 @@ from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.levels.convert import to_state
 from grid_universe.levels.entity import BaseEntity
 from grid_universe.levels.grid import Level
-from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
-from grid_universe.objectives import OBJECTIVE_FN_REGISTRY, default_objective_fn
-from grid_universe.renderer.texture import (
-    TextureMap,
-    DEFAULT_TEXTURE_MAP,
-    TextureRenderer,
-    TEXTURE_MAP_REGISTRY,
-    DEFAULT_ASSET_ROOT,
-)
 from grid_universe.state import State
 from grid_universe.types import MoveFn, ObjectiveFn
+from grid_universe.renderer.texture import TextureMap, DEFAULT_TEXTURE_MAP
 
 from grid_play.config.sources.base import BaseConfig, LevelSource
 from grid_play.config.shared_ui import texture_map_section
 
 
-# ------------ Editor model ------------
+# -------- Editor models --------
 
 EditorParams = dict[str, Any]
 
@@ -39,8 +33,6 @@ class EditorToken:
 WorkingCell = list[EditorToken]
 WorkingRow = list[WorkingCell]
 WorkingGrid = list[WorkingRow]
-
-# Immutable snapshot representation: grid[y][x] -> tuple[EditorToken, ...]
 TokenGridSnapshot = tuple[tuple[tuple[EditorToken, ...], ...], ...]
 
 
@@ -52,41 +44,35 @@ class EditorConfig(BaseConfig):
     move_fn: MoveFn
     objective_fn: ObjectiveFn
     render_texture_map: TextureMap
-    grid_tokens: TokenGridSnapshot  # immutable snapshot of the authored grid
+    grid_tokens: TokenGridSnapshot
 
 
-ParamUI = Callable[[], dict[str, Any]]
-BuilderFn = Callable[[dict[str, Any]], BaseEntity]
+ParamUI = Callable[[], EditorParams]
 
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """Immutable tool specification for the palette."""
-
     label: str
     icon: str
-    builder: BuilderFn
+    factory_fn: Callable[..., BaseEntity]
+    param_map: Callable[[dict[str, Any]], dict[str, Any]]
     param_ui: ParamUI | None = None
     description: str | None = None
-    multi_place: bool = False  # reserved for future extension
-
-
-# ------------ Defaults & helpers ------------
 
 
 def _default_editor_config() -> EditorConfig:
     width, height = 9, 7
-    # Initialize with floor-only tokens
     base_row: tuple[tuple[EditorToken, ...], ...] = tuple(
         (EditorToken(type="floor", params={"cost": 1}),) for _ in range(width)
     )
     snapshot: TokenGridSnapshot = tuple(base_row for _ in range(height))
+    # Placeholders; caller must provide registries and texture maps via build_editor_config
     return EditorConfig(
         width=width,
         height=height,
         turn_limit=None,
-        move_fn=default_move_fn,
-        objective_fn=default_objective_fn,
+        move_fn=lambda s, e, a: [],
+        objective_fn=lambda s, e: False,
         seed=None,
         render_texture_map=DEFAULT_TEXTURE_MAP,
         grid_tokens=snapshot,
@@ -94,16 +80,13 @@ def _default_editor_config() -> EditorConfig:
 
 
 def _ensure_working_grid(width: int, height: int) -> WorkingGrid:
-    """Create or resize the working grid in session state (floor-only baseline)."""
     key = "editor_working_grid"
     if key not in st.session_state:
         st.session_state[key] = [
             [[EditorToken(type="floor", params={"cost": 1})] for _ in range(width)]
             for _ in range(height)
         ]
-    grid = cast(WorkingGrid, st.session_state[key])
-
-    # Resize preserving content
+    grid: WorkingGrid = st.session_state[key]
     if len(grid) != height or len(grid[0]) != width:
         new_grid: WorkingGrid = [
             [[EditorToken(type="floor", params={"cost": 1})] for _ in range(width)]
@@ -111,7 +94,6 @@ def _ensure_working_grid(width: int, height: int) -> WorkingGrid:
         ]
         for yy in range(min(height, len(grid))):
             for xx in range(min(width, len(grid[0]))):
-                # Deep copy tokens (immutable dataclass, but we copy list container)
                 new_grid[yy][xx] = list(grid[yy][xx])
         st.session_state[key] = new_grid
         grid = new_grid
@@ -119,18 +101,12 @@ def _ensure_working_grid(width: int, height: int) -> WorkingGrid:
 
 
 def _ensure_floor(cell: WorkingCell) -> EditorToken:
-    """Ensure the cell has a floor token; return that token."""
     for t in cell:
         if t.type == "floor":
             return t
     floor = EditorToken(type="floor", params={"cost": 1})
     cell.insert(0, floor)
     return floor
-
-
-def _tool_icon(palette: Mapping[str, ToolSpec], key: str, default: str = "") -> str:
-    spec = palette.get(key)
-    return spec.icon if spec is not None else default
 
 
 def place_tool(
@@ -140,38 +116,30 @@ def place_tool(
     grid: WorkingGrid,
     params: EditorParams | None = None,
 ) -> None:
-    """Place the selected tool into the grid cell."""
     cell = grid[y][x]
     p = params or {}
 
     if tool_key == "erase":
-        # Reset to floor-only (preserve existing floor if present)
         floor = _ensure_floor(cell)
         grid[y][x] = [floor]
         return
 
     if tool_key == "floor":
         floor = _ensure_floor(cell)
-        # Update cost parameter (if provided)
         if "cost" in p:
             new_cost = int(p["cost"])
-            # replace the floor token with updated params
             updated = EditorToken(type="floor", params={"cost": new_cost})
-            # maintain floor at index 0
             grid[y][x] = [updated] + [t for t in cell if t.type != "floor"]
         else:
-            # Keep floor and any non-floor tokens
             grid[y][x] = [floor] + [t for t in cell if t.type != "floor"]
         return
 
-    # Non-floor: ensure floor then set to [floor, tool]
     floor = _ensure_floor(cell)
     tool = EditorToken(type=tool_key, params=dict(p))
     grid[y][x] = [floor, tool]
 
 
 def _pair_portals(grid: WorkingGrid) -> None:
-    """Compute portal pairs sequentially and store in session state."""
     portals: list[tuple[int, int]] = []
     for yy, row in enumerate(grid):
         for xx, cell in enumerate(row):
@@ -183,7 +151,6 @@ def _pair_portals(grid: WorkingGrid) -> None:
 
 
 def snapshot_grid(grid: WorkingGrid) -> TokenGridSnapshot:
-    """Produce an immutable snapshot of the working grid."""
     return tuple(
         tuple(
             tuple(EditorToken(type=t.type, params=dict(t.params)) for t in cell)
@@ -193,14 +160,9 @@ def snapshot_grid(grid: WorkingGrid) -> TokenGridSnapshot:
     )
 
 
-# ------------ Level build from tokens ------------
-
-
 def build_level_from_tokens(
-    cfg: EditorConfig,
-    palette: Mapping[str, ToolSpec],
+    cfg: EditorConfig, palette: Mapping[str, ToolSpec]
 ) -> Level:
-    """Convert an EditorConfig grid snapshot into a mutable Level."""
     level = Level(
         width=cfg.width,
         height=cfg.height,
@@ -209,8 +171,6 @@ def build_level_from_tokens(
         seed=cfg.seed,
         turn_limit=cfg.turn_limit,
     )
-
-    # Track portals to wire pairs after placement
     portal_specs: dict[tuple[int, int], BaseEntity] = {}
 
     for y in range(cfg.height):
@@ -222,11 +182,8 @@ def build_level_from_tokens(
                 tspec = palette.get(ttype)
                 if tspec is None:
                     continue
-                try:
-                    ent = tspec.builder(token.params)
-                except Exception:
-                    # Defensive fallback: try with empty params
-                    ent = tspec.builder({})
+                kwargs = tspec.param_map(token.params)
+                ent = tspec.factory_fn(**kwargs)
                 level.add((x, y), ent)
                 if ttype == "portal":
                     portal_specs[(x, y)] = ent
@@ -234,20 +191,17 @@ def build_level_from_tokens(
     # Pair portals using stored pairs else sequential
     pairs: list[tuple[tuple[int, int], tuple[int, int]]] = []
     if "editor_portal_pairs" in st.session_state:
-        pairs = cast(
-            list[tuple[tuple[int, int], tuple[int, int]]],
-            st.session_state["editor_portal_pairs"],
-        )
+        pairs = st.session_state["editor_portal_pairs"]
     else:
         ordered = list(portal_specs.keys())
         pairs = [(ordered[i], ordered[i + 1]) for i in range(0, len(ordered) - 1, 2)]
 
+    # Runtime wiring via mutual refs (kept for compatibility)
     for a_pos, b_pos in pairs:
         a = portal_specs.get(a_pos)
         b = portal_specs.get(b_pos)
         if a is None or b is None or a is b:
             continue
-        # Mirror factory pairing semantics if attribute exists
         try:
             setattr(a, "portal_pair_ref", b)
             if getattr(b, "portal_pair_ref", None) is None:
@@ -258,6 +212,209 @@ def build_level_from_tokens(
     return level
 
 
+def _tool_icon(palette: Mapping[str, ToolSpec], key: str, default: str = "") -> str:
+    spec = palette.get(key)
+    return spec.icon if spec is not None else default
+
+
+def _registry_key_by_value(reg: Mapping[str, Any], value: Any, default_key: str) -> str:
+    for k, v in reg.items():
+        if v is value:
+            return k
+    return default_key
+
+
+def _factory_import_line(fn: Callable[..., BaseEntity]) -> str | None:
+    mod = getmodule(fn)
+    if mod is None or not hasattr(fn, "__name__"):
+        return None
+    return f"from {mod.__name__} import {fn.__name__}"
+
+
+def _render_arg_value(v: Any, extra_imports: list[str]) -> str:
+    # Enum -> QualName and add import for class
+    if isinstance(v, Enum):
+        cls = v.__class__
+        mod = cls.__module__
+        name = cls.__name__
+        qual = f"{name}.{v.name}"
+        imp = f"from {mod} import {name}"
+        if imp not in extra_imports:
+            extra_imports.append(imp)
+        return qual
+    return repr(v)
+
+
+def generate_code_from_palette(
+    cfg: EditorConfig,
+    palette: Mapping[str, ToolSpec],
+    *,
+    env_class: type,
+    move_fn_registry: Mapping[str, MoveFn],
+    objective_fn_registry: Mapping[str, ObjectiveFn],
+) -> str:
+    move_key = _registry_key_by_value(
+        move_fn_registry, cfg.move_fn, next(iter(move_fn_registry))
+    )
+    obj_key = _registry_key_by_value(
+        objective_fn_registry, cfg.objective_fn, next(iter(objective_fn_registry))
+    )
+
+    placements: dict[str, list[tuple[int, int]]] = {}
+    used_imports: list[str] = []
+    portal_positions: list[tuple[int, int]] = []
+
+    # Collect tool placements
+    for y in range(cfg.height):
+        for x in range(cfg.width):
+            tokens = [t for t in cfg.grid_tokens[y][x] if t.type != "erase"]
+            if not tokens:
+                continue
+
+            # Floor first (explicit or default)
+            floor_tok = next((t for t in tokens if t.type == "floor"), None)
+            floor_spec = palette.get("floor")
+            if floor_spec:
+                kwargs = floor_spec.param_map(
+                    floor_tok.params if floor_tok else {"cost": 1}
+                )
+                imp = _factory_import_line(floor_spec.factory_fn)
+                if imp:
+                    used_imports.append(imp)
+                args = ", ".join(
+                    f"{k}={_render_arg_value(v, used_imports)}"
+                    for k, v in kwargs.items()
+                )
+                expr = (
+                    f"{floor_spec.factory_fn.__name__}({args})"
+                    if args
+                    else f"{floor_spec.factory_fn.__name__}()"
+                )
+                placements.setdefault(expr, []).append((x, y))
+
+            # Other tokens
+            for tok in tokens:
+                if tok.type == "floor":
+                    continue
+                if tok.type == "portal":
+                    portal_positions.append((x, y))
+                    continue
+                spec = palette.get(tok.type)
+                if spec is None:
+                    placements.setdefault(
+                        f"# Unsupported tool '{tok.type}'", []
+                    ).append((x, y))
+                    continue
+                kwargs = spec.param_map(tok.params)
+                imp = _factory_import_line(spec.factory_fn)
+                if imp:
+                    used_imports.append(imp)
+                args = ", ".join(
+                    f"{k}={_render_arg_value(v, used_imports)}"
+                    for k, v in kwargs.items()
+                )
+                expr = (
+                    f"{spec.factory_fn.__name__}({args})"
+                    if args
+                    else f"{spec.factory_fn.__name__}()"
+                )
+                placements.setdefault(expr, []).append((x, y))
+
+    # Portal pairing & unpaired (standardized: fn(pair=...))
+    portal_pairs: list[tuple[tuple[int, int], tuple[int, int]]] = [
+        (portal_positions[i], portal_positions[i + 1])
+        for i in range(0, len(portal_positions) - 1, 2)
+    ]
+    unpaired = portal_positions[len(portal_pairs) * 2 :]
+
+    portal_lines: list[str] = []
+    portal_spec = palette.get("portal")
+    if portal_spec:
+        if len(portal_pairs) > 0 or len(unpaired) > 0:
+            imp = _factory_import_line(portal_spec.factory_fn)
+            if imp:
+                used_imports.append(imp)
+        fn_name = portal_spec.factory_fn.__name__
+        for (ax, ay), (bx, by) in portal_pairs:
+            portal_lines += [
+                f"    p1 = {fn_name}()",
+                f"    p2 = {fn_name}(pair=p1)",
+                f"    level.add(({ax}, {ay}), p1)",
+                f"    level.add(({bx}, {by}), p2)",
+            ]
+        for ux, uy in unpaired:
+            portal_lines += [f"    level.add(({ux}, {uy}), {fn_name}())"]
+
+    # Deduplicate imports preserving order (tools only)
+    dedup_imports: list[str] = []
+    seen: set[str] = set()
+    for imp in used_imports:
+        if imp and imp not in seen:
+            seen.add(imp)
+            dedup_imports.append(imp)
+
+    # Derive env import automatically from env_class
+    env_mod = getmodule(env_class)
+    if env_mod is None or not hasattr(env_class, "__name__"):
+        raise ValueError("env_class must be a normal class with resolvable module/name")
+    env_import_line = f"from {env_mod.__name__} import {env_class.__name__}"
+    env_class_name = env_class.__name__
+
+    # Emit script
+    lines: list[str] = []
+    a = lines.append
+    a("# Auto-generated by Grid Play Level Editor")
+    a("from grid_universe.levels.grid import Level")
+    a("from grid_universe.levels.convert import to_state")
+    a("from grid_universe.moves import MOVE_FN_REGISTRY")
+    a("from grid_universe.objectives import OBJECTIVE_FN_REGISTRY")
+    a(env_import_line)
+    for imp in dedup_imports:
+        a(imp)
+    a("")
+    a("def build_level() -> Level:")
+    tl_arg = f", turn_limit={int(cfg.turn_limit)}" if cfg.turn_limit is not None else ""
+    a(
+        f"    level = Level(width={cfg.width}, height={cfg.height}, "
+        f"move_fn=MOVE_FN_REGISTRY[{repr(move_key)}], "
+        f"objective_fn=OBJECTIVE_FN_REGISTRY[{repr(obj_key)}], "
+        f"seed={repr(cfg.seed)}{tl_arg})"
+    )
+    a("")
+    for expr, positions in sorted(placements.items(), key=lambda kv: kv[0]):
+        if expr.startswith("# Unsupported"):
+            for x, y in positions:
+                a(f"    {expr} at ({x}, {y})")
+            continue
+        if len(positions) == 1:
+            x, y = positions[0]
+            a(f"    level.add(({x}, {y}), {expr})")
+        else:
+            pos_list = ", ".join([f"({x}, {y})" for (x, y) in positions])
+            a(f"    for (x, y) in [{pos_list}]:")
+            a(f"        level.add((x, y), {expr})")
+    for ln in portal_lines:
+        a(ln)
+    a("")
+    a("    return level")
+    a("")
+    a(f"def build_env() -> {env_class_name}:")
+    a("    def _initial_state_fn(**_: object):")
+    a("        return to_state(build_level())")
+    a("    state = _initial_state_fn()")
+    a(
+        f"    return {env_class_name}("
+        "render_mode='rgb_array', initial_state_fn=_initial_state_fn, "
+        "width=state.width, height=state.height)"
+    )
+    a("")
+    a("if __name__ == '__main__':")
+    a("    env = build_env()")
+    a("    img = env.render(mode='rgb_array')")
+    a("    if img is not None: img.show()")
+    return "\n".join(lines)
+
+
 # ------------ Streamlit UI builder ------------
 
 
@@ -266,35 +423,18 @@ def build_editor_config(
     *,
     name: str,
     palette: Mapping[str, ToolSpec],
-    texture_maps: list[TextureMap] | None = None,
-    move_fn_registry: Mapping[str, MoveFn] | None = None,
-    objective_fn_registry: Mapping[str, ObjectiveFn] | None = None,
-    asset_root_resolver: Callable[[TextureMap], str] | None = None,
+    texture_maps: list[TextureMap],
+    move_fn_registry: Mapping[str, MoveFn],
+    objective_fn_registry: Mapping[str, ObjectiveFn],
+    asset_root_resolver: Callable[[TextureMap], str],
+    env_class: type,
 ) -> EditorConfig:
-    """Render the editor UI and return an updated EditorConfig.
-
-    Args:
-        name: Display name for namespacing widget keys.
-        palette: ToolSpec mapping.
-        texture_maps: Optional list of texture maps to offer (defaults to registry).
-        move_fn_registry: Optional registry of move functions (defaults to MOVE_FN_REGISTRY).
-        objective_fn_registry: Optional registry of objective functions (defaults to OBJECTIVE_FN_REGISTRY).
-
-    Returns:
-        An EditorConfig reflecting the current UI state.
-    """
     base: EditorConfig = (
         current if isinstance(current, EditorConfig) else _default_editor_config()
     )
     st.info(name, icon="🛠️")
 
-    # Resolve registries (configurable)
-    move_fns: Mapping[str, MoveFn] = move_fn_registry or MOVE_FN_REGISTRY
-    objectives: Mapping[str, ObjectiveFn] = (
-        objective_fn_registry or OBJECTIVE_FN_REGISTRY
-    )
-
-    # Top config row
+    # Top config
     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
     with c1:
         width = int(st.number_input("Width", 3, 50, base.width, key=f"{name}_width"))
@@ -317,14 +457,15 @@ def build_editor_config(
         )
         turn_limit = tl_in if tl_in > 0 else None
 
-    # Movement and objective selection (use configurable registries)
-    move_names = list(move_fns.keys())
-    obj_names = list(objectives.keys())
+    # Movement / Objective
+    move_names = list(move_fn_registry.keys())
+    obj_names = list(objective_fn_registry.keys())
     mc1, mc2 = st.columns([1, 1])
     with mc1:
-        # find current key for base.move_fn
         try:
-            current_move_key = next(k for k, v in move_fns.items() if v is base.move_fn)
+            current_move_key = next(
+                k for k, v in move_fn_registry.items() if v is base.move_fn
+            )
         except StopIteration:
             current_move_key = move_names[0]
         move_label = st.selectbox(
@@ -333,11 +474,11 @@ def build_editor_config(
             index=move_names.index(current_move_key),
             key=f"{name}_move_fn",
         )
-        move_fn = move_fns[move_label]
+        move_fn = move_fn_registry[move_label]
     with mc2:
         try:
             current_obj_key = next(
-                k for k, v in objectives.items() if v is base.objective_fn
+                k for k, v in objective_fn_registry.items() if v is base.objective_fn
             )
         except StopIteration:
             current_obj_key = obj_names[0]
@@ -347,21 +488,17 @@ def build_editor_config(
             index=obj_names.index(current_obj_key),
             key=f"{name}_objective_fn",
         )
-        objective_fn = objectives[obj_label]
+        objective_fn = objective_fn_registry[obj_label]
 
-    # Texture map selection: mirror level_selection behavior
-    offered_maps: list[TextureMap] = (
-        list(TEXTURE_MAP_REGISTRY.values())
-        if texture_maps is None
-        else list(texture_maps)
-    )
-    if not offered_maps:
-        offered_maps = list(TEXTURE_MAP_REGISTRY.values())
+    # Texture maps (strictly from caller)
+    if not texture_maps:
+        st.error("No texture maps provided.")
+        st.stop()
     texture_map = texture_map_section(
-        base, key=f"{name}_texture_map", options=offered_maps
+        base, key=f"{name}_texture_map", options=texture_maps
     )
 
-    # Working grid and palette UI
+    # Working grid
     grid = _ensure_working_grid(width, height)
     palette_keys: list[str] = list(palette.keys())
     palette_labels: list[str] = [
@@ -384,17 +521,13 @@ def build_editor_config(
         params: EditorParams = {}
         if tspec.param_ui is not None:
             st.markdown("Parameters")
-            try:
-                params = tspec.param_ui() or {}
-            except Exception:
-                params = {}
+            params = tspec.param_ui() or {}
         if tspec.description:
-            st.caption(tspec.description)
+            st.caption(tspec.description or "")
 
     # Grid editing
     with middle:
         st.subheader("Grid")
-        # Determine default floor icon safely
         floor_icon = _tool_icon(palette, "floor", "⬜")
         for yy in range(height):
             cols = st.columns(width)
@@ -411,14 +544,7 @@ def build_editor_config(
                         _pair_portals(grid)
                     st.rerun()
 
-    # Resolve asset root for preview based on selected texture map
-    preview_asset_root = (
-        asset_root_resolver(texture_map)
-        if asset_root_resolver is not None
-        else DEFAULT_ASSET_ROOT
-    )
-
-    # Live preview
+    # Preview + Export
     with right:
         st.subheader("Preview")
         cfg_preview = EditorConfig(
@@ -434,15 +560,36 @@ def build_editor_config(
         try:
             lvl = build_level_from_tokens(cfg_preview, palette)
             state_preview = to_state(lvl)
+            preview_asset_root = asset_root_resolver(texture_map)
+            from grid_universe.renderer.texture import TextureRenderer  # local import
+
             img = TextureRenderer(
-                texture_map=texture_map,
-                asset_root=preview_asset_root,
+                texture_map=texture_map, asset_root=preview_asset_root
             ).render(state_preview)
             st.image(img, width="stretch")
         except Exception as e:
             st.error(f"Preview failed: {e}")
 
-    # Final immutable snapshot
+    with st.expander("Export as Python", expanded=False):
+        try:
+            code_str = generate_code_from_palette(
+                cfg_preview,
+                palette,
+                env_class=env_class,
+                move_fn_registry=move_fn_registry,
+                objective_fn_registry=objective_fn_registry,
+            )
+            st.code(code_str, language="python")
+            st.download_button(
+                "Download generated_level.py",
+                data=code_str,
+                file_name="generated_level.py",
+                mime="text/x-python",
+                width="stretch",
+            )
+        except Exception as e:
+            st.error(f"Code generation failed: {e}")
+
     return EditorConfig(
         width=width,
         height=height,
@@ -458,39 +605,21 @@ def build_editor_config(
 # ------------ Environment factory ------------
 
 
-def make_env(
-    cfg: EditorConfig,
-    palette: Mapping[str, ToolSpec],
-    env_factory: EnvFactory | None = None,
+def _default_env_factory(
+    initial_state_fn: Callable[..., State], texture_map: TextureMap
 ) -> GridUniverseEnv:
-    """Create a GridUniverseEnv for the current editor config."""
-
-    def _initial_state_fn(**_: Any) -> State:
-        level = build_level_from_tokens(cfg, palette)
-        return to_state(level)
-
-    state0 = _initial_state_fn()
-    # Defensive: level must contain at least one agent
-    if not state0.agent:
-        raise ValueError(
-            "Level must contain an Agent. Use the 'Agent' tool in the palette to place one before starting."
-        )
-
-    if env_factory is not None:
-        return env_factory(_initial_state_fn, cfg.render_texture_map)
-
+    sample_state = initial_state_fn()
     return GridUniverseEnv(
         render_mode="rgb_array",
-        initial_state_fn=_initial_state_fn,
-        width=state0.width,
-        height=state0.height,
-        render_texture_map=cfg.render_texture_map,
+        initial_state_fn=initial_state_fn,
+        width=sample_state.width,
+        height=sample_state.height,
+        render_texture_map=texture_map,
     )
 
 
 # ------------ LevelSource factory ------------
 
-# (initial_state_fn, texture_map) -> Env instance
 EnvFactory = Callable[[Callable[..., State], TextureMap], GridUniverseEnv]
 
 
@@ -498,30 +627,13 @@ def make_level_editor_source(
     *,
     name: str,
     palette: Mapping[str, ToolSpec],
-    texture_maps: list[TextureMap] | None = None,
-    env_factory: EnvFactory | None = None,
-    move_fn_registry: Mapping[str, MoveFn] | None = None,
-    objective_fn_registry: Mapping[str, ObjectiveFn] | None = None,
-    asset_root_resolver: Callable[[TextureMap], str] | None = None,
+    texture_maps: list[TextureMap],
+    env_factory: EnvFactory | None,
+    move_fn_registry: Mapping[str, MoveFn],
+    objective_fn_registry: Mapping[str, ObjectiveFn],
+    asset_root_resolver: Callable[[TextureMap], str],
+    env_class: type,
 ) -> LevelSource:
-    """Create a LevelSource for a level editor with the given parameters.
-
-    Args:
-        name: Display name in the UI.
-        palette: Mapping of tool_key -> ToolSpec.
-        texture_maps: Optional list of texture maps to offer; defaults to registry values.
-            If a single map is provided, the picker is hidden and that map is used.
-        env_factory: Optional factory to build a custom environment (e.g., GridAdventureEnv).
-            Signature: env_factory(initial_state_fn, texture_map) -> Env.
-            If omitted, a default GridUniverseEnv will be used.
-        move_fn_registry: Optional custom registry of move functions for the editor's dropdown.
-        objective_fn_registry: Optional custom registry of objective functions for the editor's dropdown.
-        asset_root_resolver: Optional function to resolve asset root paths based on texture map.
-
-    Returns:
-        A LevelSource instance for the level editor.
-    """
-
     def _initial_config() -> EditorConfig:
         return _default_editor_config()
 
@@ -534,11 +646,25 @@ def make_level_editor_source(
             move_fn_registry=move_fn_registry,
             objective_fn_registry=objective_fn_registry,
             asset_root_resolver=asset_root_resolver,
+            env_class=env_class,
         )
 
     def _make_env(cfg: BaseConfig) -> GridUniverseEnv:
         assert isinstance(cfg, EditorConfig)
-        return make_env(cfg, palette, env_factory)
+        # Use custom env factory if provided; else default GU env
+        factory = env_factory or _default_env_factory
+
+        def initial_state_fn(**_: Any) -> State:
+            lvl = build_level_from_tokens(cfg, palette)
+            return to_state(lvl)
+
+        sample_state = initial_state_fn()
+        if not sample_state.agent:
+            raise ValueError(
+                "Level must contain an Agent. Use the 'Agent' tool in the palette to place one before starting."
+            )
+
+        return factory(initial_state_fn, cfg.render_texture_map)
 
     return LevelSource(
         name=name,

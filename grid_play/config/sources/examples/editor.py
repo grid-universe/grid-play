@@ -22,11 +22,22 @@ from grid_universe.levels.factories import (
     create_speed_effect,
     create_wall,
 )
+from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.moves import MOVE_FN_REGISTRY
+from grid_universe.objectives import OBJECTIVE_FN_REGISTRY
+from grid_universe.renderer.texture import (
+    TextureMap,
+    TEXTURE_MAP_REGISTRY,
+    DEFAULT_ASSET_ROOT,
+)
+
 from grid_play.config.sources.base import register_level_source
 from grid_play.config.sources.level_editor import ToolSpec, make_level_editor_source
 
 
-# ---------- Parameter UIs ----------
+# -----------------------
+# Parameter UIs
+# -----------------------
 
 
 def agent_params() -> dict[str, Any]:
@@ -38,12 +49,12 @@ def floor_params() -> dict[str, Any]:
 
 
 def coin_params() -> dict[str, Any]:
-    reward = int(st.number_input("Reward (0 = none)", 0, 999, 0, key="coin_reward"))
+    reward = int(st.number_input("Reward (0=none)", 0, 999, 0, key="coin_reward"))
     return {"reward": reward if reward > 0 else None}
 
 
 def core_params() -> dict[str, Any]:
-    reward = int(st.number_input("Reward (0 = none)", 0, 999, 10, key="core_reward"))
+    reward = int(st.number_input("Reward (0=none)", 0, 999, 10, key="core_reward"))
     required = bool(st.checkbox("Required?", value=True, key="core_required"))
     return {"reward": reward if reward > 0 else None, "required": required}
 
@@ -60,28 +71,24 @@ def door_params() -> dict[str, Any]:
 
 def moving_params(prefix: str) -> dict[str, Any]:
     axis_label = st.selectbox(
-        "Axis", ["None", "Horizontal", "Vertical"], key=f"{prefix}_move_axis"
+        "Axis", ["None", "Horizontal", "Vertical"], key=f"{prefix}_axis"
     )
     axis = None
     if axis_label == "Horizontal":
         axis = MovingAxis.HORIZONTAL
     elif axis_label == "Vertical":
         axis = MovingAxis.VERTICAL
-    direction = st.selectbox(
-        "Direction",
-        ["+1 (forward/right/down)", "-1 (back/left/up)"],
-        key=f"{prefix}_move_dir",
+    direction_label = st.selectbox(
+        "Direction", ["+1 (right/down)", "-1 (left/up)"], key=f"{prefix}_dir"
     )
-    dir_val = 1 if direction.startswith("+1") else -1
+    direction = 1 if direction_label.startswith("+1") else -1
     bounce = bool(
-        st.checkbox("Bounce (reverse at ends)", value=True, key=f"{prefix}_move_bounce")
+        st.checkbox("Bounce (reverse at ends)", value=True, key=f"{prefix}_bounce")
     )
-    speed = int(
-        st.number_input("Speed (tiles / step)", 1, 10, 1, key=f"{prefix}_move_speed")
-    )
+    speed = int(st.number_input("Speed (tiles/step)", 1, 10, 1, key=f"{prefix}_speed"))
     return {
         "moving_axis": axis,
-        "moving_direction": dir_val if axis is not None else None,
+        "moving_direction": direction if axis is not None else None,
         "moving_bounce": bounce,
         "moving_speed": speed,
     }
@@ -93,7 +100,7 @@ def box_params() -> dict[str, Any]:
 
 
 def monster_params() -> dict[str, Any]:
-    damage = int(st.number_input("Damage", 1, 50, 3, key="monster_dmg"))
+    damage = int(st.number_input("Damage", 1, 50, 3, key="monster_damage"))
     lethal = bool(st.checkbox("Lethal?", value=False, key="monster_lethal"))
     return {"damage": damage, "lethal": lethal, **moving_params("monster")}
 
@@ -104,7 +111,7 @@ def hazard_params(kind: str) -> dict[str, Any]:
     damage = (
         0 if lethal else int(st.number_input("Damage", 1, 50, 2, key=f"{kind}_damage"))
     )
-    return {"damage": damage, "lethal": lethal}
+    return {"appearance": kind, "damage": damage, "lethal": lethal}
 
 
 def speed_params() -> dict[str, Any]:
@@ -120,151 +127,181 @@ def limit_params(prefix: str) -> dict[str, Any]:
     return {"time": (time or None), "usage": (usage or None)}
 
 
-# ---------- Palette ----------
+# -----------------------
+# Palette
+# -----------------------
 
 PALETTE: dict[str, ToolSpec] = {
     "floor": ToolSpec(
         label="Floor",
         icon="⬜",
-        builder=lambda p: create_floor(cost_amount=int(p.get("cost", 1))),
+        factory_fn=create_floor,
+        param_map=lambda p: {"cost_amount": int(p.get("cost", 1))},
         param_ui=floor_params,
     ),
     "wall": ToolSpec(
         label="Wall",
         icon="🟫",
-        builder=lambda _p: create_wall(),
+        factory_fn=create_wall,
+        param_map=lambda p: {},
     ),
     "agent": ToolSpec(
         label="Agent",
         icon="😊",
-        builder=lambda p: create_agent(health=int(p.get("health", 5))),
+        factory_fn=create_agent,
+        param_map=lambda p: {"health": int(p.get("health", 5))},
         param_ui=agent_params,
     ),
     "exit": ToolSpec(
         label="Exit",
         icon="🏁",
-        builder=lambda _p: create_exit(),
-    ),
-    "coin": ToolSpec(
-        label="Coin",
-        icon="🪙",
-        builder=lambda p: create_coin(reward=p.get("reward")),
-        param_ui=coin_params,
-    ),
-    "core": ToolSpec(
-        label="Core",
-        icon="⭐",
-        builder=lambda p: create_core(
-            reward=p.get("reward"),
-            required=bool(p.get("required", True)),
-        ),
-        param_ui=core_params,
+        factory_fn=create_exit,
+        param_map=lambda p: {},
     ),
     "key": ToolSpec(
         label="Key",
         icon="🔑",
-        builder=lambda p: create_key(p.get("key_id", "A")),
+        factory_fn=create_key,
+        param_map=lambda p: {"key_id": p.get("key_id", "A")},
         param_ui=key_params,
     ),
     "door": ToolSpec(
         label="Door",
         icon="🚪",
-        builder=lambda p: create_door(p.get("key_id", "A")),
+        factory_fn=create_door,
+        param_map=lambda p: {"key_id": p.get("key_id", "A")},
         param_ui=door_params,
+    ),
+    "coin": ToolSpec(
+        label="Coin",
+        icon="🪙",
+        factory_fn=create_coin,
+        param_map=lambda p: {"reward": p.get("reward")},
+        param_ui=coin_params,
+    ),
+    "core": ToolSpec(
+        label="Core",
+        icon="⭐",
+        factory_fn=create_core,
+        param_map=lambda p: {
+            "reward": p.get("reward"),
+            "required": bool(p.get("required", True)),
+        },
+        param_ui=core_params,
     ),
     "portal": ToolSpec(
         label="Portal",
         icon="🔵",
-        builder=lambda _p: create_portal(),
+        factory_fn=create_portal,  # standardized: (pair: BaseEntity | None)
+        param_map=lambda p: {},
         description="Click two cells sequentially to pair.",
     ),
     "box": ToolSpec(
         label="Box",
         icon="📦",
-        builder=lambda p: create_box(
-            pushable=bool(p.get("pushable", True)),
-            moving_axis=p.get("moving_axis"),
-            moving_direction=p.get("moving_direction"),
-            moving_bounce=bool(p.get("moving_bounce", True)),
-            moving_speed=int(p.get("moving_speed", 1)),
-        ),
+        factory_fn=create_box,
+        param_map=lambda p: {
+            "pushable": bool(p.get("pushable", True)),
+            "moving_axis": p.get("moving_axis"),
+            "moving_direction": p.get("moving_direction"),
+            "moving_bounce": bool(p.get("moving_bounce", True)),
+            "moving_speed": int(p.get("moving_speed", 1)),
+        },
         param_ui=box_params,
     ),
     "monster": ToolSpec(
         label="Monster",
         icon="👹",
-        builder=lambda p: create_monster(
-            damage=int(p.get("damage", 3)),
-            lethal=bool(p.get("lethal", False)),
-            moving_axis=p.get("moving_axis"),
-            moving_direction=p.get("moving_direction"),
-            moving_bounce=bool(p.get("moving_bounce", True)),
-            moving_speed=int(p.get("moving_speed", 1)),
-        ),
+        factory_fn=create_monster,
+        param_map=lambda p: {
+            "damage": int(p.get("damage", 3)),
+            "lethal": bool(p.get("lethal", False)),
+            "moving_axis": p.get("moving_axis"),
+            "moving_direction": p.get("moving_direction"),
+            "moving_bounce": bool(p.get("moving_bounce", True)),
+            "moving_speed": int(p.get("moving_speed", 1)),
+        },
         param_ui=monster_params,
     ),
     "spike": ToolSpec(
         label="Spike",
         icon="⚓",
-        builder=lambda p: create_hazard(
-            "spike",
-            int(p.get("damage", 2)),
-            bool(p.get("lethal", False)),
-        ),
+        factory_fn=create_hazard,
+        param_map=lambda p: {
+            "appearance": "spike",
+            "damage": int(p.get("damage", 2)),
+            "lethal": bool(p.get("lethal", False)),
+        },
         param_ui=lambda: hazard_params("spike"),
     ),
     "lava": ToolSpec(
         label="Lava",
         icon="🔥",
-        builder=lambda p: create_hazard(
-            "lava",
-            int(p.get("damage", 2)),
-            bool(p.get("lethal", True)),
-        ),
+        factory_fn=create_hazard,
+        param_map=lambda p: {
+            "appearance": "lava",
+            "damage": int(p.get("damage", 2)),
+            "lethal": bool(p.get("lethal", True)),
+        },
         param_ui=lambda: hazard_params("lava"),
     ),
     "speed": ToolSpec(
         label="Speed",
         icon="🥾",
-        builder=lambda p: create_speed_effect(
-            multiplier=int(p.get("multiplier", 2)),
-            time=p.get("time"),
-            usage=p.get("usage"),
-        ),
+        factory_fn=create_speed_effect,
+        param_map=lambda p: {
+            "multiplier": int(p.get("multiplier", 2)),
+            "time": p.get("time"),
+            "usage": p.get("usage"),
+        },
         param_ui=speed_params,
     ),
     "shield": ToolSpec(
         label="Shield",
         icon="🛡️",
-        builder=lambda p: create_immunity_effect(
-            time=p.get("time"),
-            usage=p.get("usage"),
-        ),
+        factory_fn=create_immunity_effect,
+        param_map=lambda p: {"time": p.get("time"), "usage": p.get("usage")},
         param_ui=lambda: limit_params("shield"),
     ),
     "ghost": ToolSpec(
         label="Ghost",
         icon="👻",
-        builder=lambda p: create_phasing_effect(
-            time=p.get("time"),
-            usage=p.get("usage"),
-        ),
+        factory_fn=create_phasing_effect,
+        param_map=lambda p: {"time": p.get("time"), "usage": p.get("usage")},
         param_ui=lambda: limit_params("ghost"),
     ),
-    # Eraser handled specially by the editor engine (place_tool); builder not used
     "erase": ToolSpec(
         label="Eraser",
         icon="␡",
-        builder=lambda _p: create_floor(cost_amount=1),
+        factory_fn=create_floor,
+        param_map=lambda p: {"cost_amount": 1},
         description="Reset cell to floor-only.",
     ),
 }
 
-# ---------- Register LevelSource ----------
+
+# -----------------------
+# Asset root resolver (preview)
+# -----------------------
+
+
+def _asset_root_resolver(texture_map: TextureMap) -> str:
+    return DEFAULT_ASSET_ROOT
+
+
+# -----------------------
+# Register LevelSource
+# -----------------------
 
 register_level_source(
     make_level_editor_source(
-        name="Grid Universe Level Editor Example",
+        name="Grid Universe Level Editor",
         palette=PALETTE,
+        texture_maps=list(TEXTURE_MAP_REGISTRY.values()),  # offer all built-in GU packs
+        env_factory=None,  # use default GridUniverseEnv factory
+        move_fn_registry=MOVE_FN_REGISTRY,
+        objective_fn_registry=OBJECTIVE_FN_REGISTRY,
+        asset_root_resolver=_asset_root_resolver,
+        env_class=GridUniverseEnv,
     )
 )
