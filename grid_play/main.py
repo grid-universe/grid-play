@@ -20,6 +20,10 @@ from grid_play.components import (
     get_keyboard_action,
     do_action,
 )
+from grid_play.ai import (
+    show_agent_dialog,
+    run_agent_step,
+)
 from grid_play.plugins import import_plugins, import_plugin_files
 from grid_universe.gym_env import GridUniverseEnv, Observation, Action
 
@@ -145,6 +149,28 @@ with tab_game:
                 do_action(env, Action.WAIT)
 
         action: Action | None = get_keyboard_action()
+
+        agent_settings_btn, agent_step_btn = st.columns([1, 1])
+        agent_step: bool = False
+
+        with agent_settings_btn:
+            if st.button(
+                "Agent Settings", key="ai_open_dialog", width="stretch", icon="⚙️"
+            ):
+                show_agent_dialog(env)
+
+        with agent_step_btn:
+            if st.button("Agent Step", key="ai_step_btn", width="stretch", icon="✨"):
+                agent_step = True
+
+        if agent_step:
+            try:
+                action = run_agent_step(env)
+                st.info(f"Agent chose action: {action}")
+            except Exception as e:
+                st.error(e)
+
+        # Execute action from keyboard or agent
         if action is not None:
             do_action(env, action)
 
