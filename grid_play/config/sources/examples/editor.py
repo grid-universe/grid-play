@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 import streamlit as st
-
-from grid_universe.components.properties import MovingAxis
 from grid_universe.levels.factories import (
     create_agent,
     create_box,
@@ -70,25 +68,20 @@ def door_params() -> dict[str, Any]:
 
 
 def moving_params(prefix: str) -> dict[str, Any]:
-    axis_label = st.selectbox(
-        "Axis", ["None", "Horizontal", "Vertical"], key=f"{prefix}_axis"
-    )
-    axis = None
-    if axis_label == "Horizontal":
-        axis = MovingAxis.HORIZONTAL
-    elif axis_label == "Vertical":
-        axis = MovingAxis.VERTICAL
     direction_label = st.selectbox(
-        "Direction", ["+1 (right/down)", "-1 (left/up)"], key=f"{prefix}_dir"
+        "Direction",
+        ["None", "Up", "Down", "Left", "Right"],
+        key=f"{prefix}_dir",
     )
-    direction = 1 if direction_label.startswith("+1") else -1
+    direction = None
+    if direction_label != "None":
+        direction = direction_label.lower()
     bounce = bool(
         st.checkbox("Bounce (reverse at ends)", value=True, key=f"{prefix}_bounce")
     )
     speed = int(st.number_input("Speed (tiles/step)", 1, 10, 1, key=f"{prefix}_speed"))
     return {
-        "moving_axis": axis,
-        "moving_direction": direction if axis is not None else None,
+        "moving_direction": direction,
         "moving_bounce": bounce,
         "moving_speed": speed,
     }
@@ -202,7 +195,6 @@ PALETTE: dict[str, ToolSpec] = {
         factory_fn=create_box,
         param_map=lambda p: {
             "pushable": bool(p.get("pushable", True)),
-            "moving_axis": p.get("moving_axis"),
             "moving_direction": p.get("moving_direction"),
             "moving_bounce": bool(p.get("moving_bounce", True)),
             "moving_speed": int(p.get("moving_speed", 1)),
@@ -216,7 +208,6 @@ PALETTE: dict[str, ToolSpec] = {
         param_map=lambda p: {
             "damage": int(p.get("damage", 3)),
             "lethal": bool(p.get("lethal", False)),
-            "moving_axis": p.get("moving_axis"),
             "moving_direction": p.get("moving_direction"),
             "moving_bounce": bool(p.get("moving_bounce", True)),
             "moving_speed": int(p.get("moving_speed", 1)),
