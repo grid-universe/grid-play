@@ -76,13 +76,17 @@ def moving_params(prefix: str) -> dict[str, Any]:
     direction = None
     if direction_label != "None":
         direction = direction_label.lower()
-    bounce = bool(
-        st.checkbox("Bounce (reverse at ends)", value=True, key=f"{prefix}_bounce")
+    on_collision_label = st.selectbox(
+        "On Collision",
+        ["Stop", "Bounce", "Destroy"],
+        index=1,
+        key=f"{prefix}_on_collision",
     )
+    on_collision = on_collision_label.lower()
     speed = int(st.number_input("Speed (tiles/step)", 1, 10, 1, key=f"{prefix}_speed"))
     return {
         "moving_direction": direction,
-        "moving_bounce": bounce,
+        "moving_on_collision": on_collision,
         "moving_speed": speed,
     }
 
@@ -196,7 +200,7 @@ PALETTE: dict[str, ToolSpec] = {
         param_map=lambda p: {
             "pushable": bool(p.get("pushable", True)),
             "moving_direction": p.get("moving_direction"),
-            "moving_bounce": bool(p.get("moving_bounce", True)),
+            "moving_on_collision": p.get("moving_on_collision", "bounce"),
             "moving_speed": int(p.get("moving_speed", 1)),
         },
         param_ui=box_params,
@@ -209,7 +213,7 @@ PALETTE: dict[str, ToolSpec] = {
             "damage": int(p.get("damage", 3)),
             "lethal": bool(p.get("lethal", False)),
             "moving_direction": p.get("moving_direction"),
-            "moving_bounce": bool(p.get("moving_bounce", True)),
+            "moving_on_collision": p.get("moving_on_collision", "bounce"),
             "moving_speed": int(p.get("moving_speed", 1)),
         },
         param_ui=monster_params,
