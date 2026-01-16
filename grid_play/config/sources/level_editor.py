@@ -13,10 +13,10 @@ from grid_universe.levels.entity import BaseEntity
 from grid_universe.levels.grid import Level
 from grid_universe.state import State
 from grid_universe.types import MoveFn, ObjectiveFn
-from grid_universe.renderer.texture import TextureMap, DEFAULT_TEXTURE_MAP
+from grid_universe.renderer.image import ImageMap, DEFAULT_IMAGE_MAP
 
 from grid_play.config.sources.base import BaseConfig, LevelSource
-from grid_play.config.shared_ui import texture_map_section
+from grid_play.config.shared_ui import image_map_section
 
 
 # -------- Editor models --------
@@ -43,7 +43,7 @@ class EditorConfig(BaseConfig):
     turn_limit: int | None
     move_fn: MoveFn
     objective_fn: ObjectiveFn
-    render_texture_map: TextureMap
+    render_image_map: ImageMap
     grid_tokens: TokenGridSnapshot
 
 
@@ -66,7 +66,7 @@ def _default_editor_config() -> EditorConfig:
         (EditorToken(type="floor", params={"cost": 1}),) for _ in range(width)
     )
     snapshot: TokenGridSnapshot = tuple(base_row for _ in range(height))
-    # Placeholders; caller must provide registries and texture maps via build_editor_config
+    # Placeholders; caller must provide registries and image maps via build_editor_config
     return EditorConfig(
         width=width,
         height=height,
@@ -74,7 +74,7 @@ def _default_editor_config() -> EditorConfig:
         move_fn=lambda s, e, a: [],
         objective_fn=lambda s, e: False,
         seed=None,
-        render_texture_map=DEFAULT_TEXTURE_MAP,
+        render_image_map=DEFAULT_IMAGE_MAP,
         grid_tokens=snapshot,
     )
 
@@ -423,10 +423,10 @@ def build_editor_config(
     *,
     name: str,
     palette: Mapping[str, ToolSpec],
-    texture_maps: list[TextureMap],
+    image_maps: list[ImageMap],
     move_fn_registry: Mapping[str, MoveFn],
     objective_fn_registry: Mapping[str, ObjectiveFn],
-    asset_root_resolver: Callable[[TextureMap], str],
+    asset_root_resolver: Callable[[ImageMap], str],
     env_class: type,
 ) -> EditorConfig:
     base: EditorConfig = (
@@ -490,13 +490,11 @@ def build_editor_config(
         )
         objective_fn = objective_fn_registry[obj_label]
 
-    # Texture maps (strictly from caller)
-    if not texture_maps:
-        st.error("No texture maps provided.")
+    # Image maps (strictly from caller)
+    if not image_maps:
+        st.error("No image maps provided.")
         st.stop()
-    texture_map = texture_map_section(
-        base, key=f"{name}_texture_map", options=texture_maps
-    )
+    image_map = image_map_section(base, key=f"{name}_image_map", options=image_maps)
 
     # Working grid
     grid = _ensure_working_grid(width, height)
@@ -554,17 +552,17 @@ def build_editor_config(
             move_fn=move_fn,
             objective_fn=objective_fn,
             seed=seed,
-            render_texture_map=texture_map,
+            render_image_map=image_map,
             grid_tokens=snapshot_grid(grid),
         )
         try:
             lvl = build_level_from_tokens(cfg_preview, palette)
             state_preview = to_state(lvl)
-            preview_asset_root = asset_root_resolver(texture_map)
-            from grid_universe.renderer.texture import TextureRenderer  # local import
+            preview_asset_root = asset_root_resolver(image_map)
+            from grid_universe.renderer.image import ImageRenderer  # local import
 
-            img = TextureRenderer(
-                texture_map=texture_map, asset_root=preview_asset_root
+            img = ImageRenderer(
+                image_map=image_map, asset_root=preview_asset_root
             ).render(state_preview)
             st.image(img, width="stretch")
         except Exception as e:
@@ -597,7 +595,7 @@ def build_editor_config(
         move_fn=move_fn,
         objective_fn=objective_fn,
         seed=seed,
-        render_texture_map=texture_map,
+        render_image_map=image_map,
         grid_tokens=snapshot_grid(grid),
     )
 
@@ -606,7 +604,7 @@ def build_editor_config(
 
 
 def _default_env_factory(
-    initial_state_fn: Callable[..., State], texture_map: TextureMap
+    initial_state_fn: Callable[..., State], image_map: ImageMap
 ) -> GridUniverseEnv:
     sample_state = initial_state_fn()
     return GridUniverseEnv(
@@ -614,24 +612,24 @@ def _default_env_factory(
         initial_state_fn=initial_state_fn,
         width=sample_state.width,
         height=sample_state.height,
-        render_texture_map=texture_map,
+        render_image_map=image_map,
     )
 
 
 # ------------ LevelSource factory ------------
 
-EnvFactory = Callable[[Callable[..., State], TextureMap], GridUniverseEnv]
+EnvFactory = Callable[[Callable[..., State], ImageMap], GridUniverseEnv]
 
 
 def make_level_editor_source(
     *,
     name: str,
     palette: Mapping[str, ToolSpec],
-    texture_maps: list[TextureMap],
+    image_maps: list[ImageMap],
     env_factory: EnvFactory | None,
     move_fn_registry: Mapping[str, MoveFn],
     objective_fn_registry: Mapping[str, ObjectiveFn],
-    asset_root_resolver: Callable[[TextureMap], str],
+    asset_root_resolver: Callable[[ImageMap], str],
     env_class: type,
 ) -> LevelSource:
     def _initial_config() -> EditorConfig:
@@ -642,7 +640,7 @@ def make_level_editor_source(
             current,
             name=name,
             palette=palette,
-            texture_maps=texture_maps,
+            image_maps=image_maps,
             move_fn_registry=move_fn_registry,
             objective_fn_registry=objective_fn_registry,
             asset_root_resolver=asset_root_resolver,
@@ -664,7 +662,7 @@ def make_level_editor_source(
                 "Level must contain an Agent. Use the 'Agent' tool in the palette to place one before starting."
             )
 
-        return factory(initial_state_fn, cfg.render_texture_map)
+        return factory(initial_state_fn, cfg.render_image_map)
 
     return LevelSource(
         name=name,

@@ -8,10 +8,10 @@ from grid_universe.state import State
 
 from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.examples import cipher_objective_levels
-from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
+from grid_universe.renderer.image import DEFAULT_IMAGE_MAP, ImageMap
 
 from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
-from grid_play.config.shared_ui import seed_section, texture_map_section
+from grid_play.config.shared_ui import seed_section, image_map_section
 
 
 # -----------------------------
@@ -22,7 +22,7 @@ class CipherConfig(BaseConfig):
     width: int
     height: int
     num_required_items: int
-    render_texture_map: TextureMap
+    render_image_map: ImageMap
     cipher_objective_pairs: list[tuple[str, str]]
 
 
@@ -34,7 +34,7 @@ def build_cipher_config(current: object) -> CipherConfig:
     base = (
         current
         if isinstance(current, CipherConfig)
-        else CipherConfig(None, 9, 7, 1, DEFAULT_TEXTURE_MAP, [])
+        else CipherConfig(None, 9, 7, 1, DEFAULT_IMAGE_MAP, [])
     )
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -76,13 +76,13 @@ def build_cipher_config(current: object) -> CipherConfig:
             parsed.append((tok, obj))
     st.markdown(f"Valid lines: **{len(parsed)}**")
     seed = seed_section(key="cipher_seed")
-    texture = texture_map_section(base)
+    image = image_map_section(base)
     return CipherConfig(
         width=width,
         height=height,
         num_required_items=num_required_items,
         seed=seed,
-        render_texture_map=texture,
+        render_image_map=image,
         cipher_objective_pairs=parsed,
     )
 
@@ -112,7 +112,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
         initial_state_fn=_initial_state_fn,
         width=sample.width,
         height=sample.height,
-        render_texture_map=cfg.render_texture_map,
+        render_image_map=cfg.render_image_map,
     )
 
     cipher_objective_levels.patch_env_redact_objective_fn(env)
@@ -121,7 +121,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
 
 
 def _default_cipher_config() -> CipherConfig:
-    return CipherConfig(None, 9, 7, 1, DEFAULT_TEXTURE_MAP, [])
+    return CipherConfig(None, 9, 7, 1, DEFAULT_IMAGE_MAP, [])
 
 
 register_level_source(

@@ -20,10 +20,10 @@ from grid_universe.examples.maze import (
 from grid_universe.types import EffectLimit, EffectType, MoveFn, ObjectiveFn
 from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
 from grid_universe.objectives import OBJECTIVE_FN_REGISTRY, default_objective_fn
-from grid_universe.renderer.texture import DEFAULT_TEXTURE_MAP, TextureMap
+from grid_universe.renderer.image import DEFAULT_IMAGE_MAP, ImageMap
 
 from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
-from grid_play.config.shared_ui import seed_section, texture_map_section
+from grid_play.config.shared_ui import seed_section, image_map_section
 
 
 # -----------------------------
@@ -49,7 +49,7 @@ class MazeConfig(BaseConfig):
     wall_percentage: float
     move_fn: MoveFn
     objective_fn: ObjectiveFn
-    render_texture_map: TextureMap
+    render_image_map: ImageMap
 
 
 def _default_maze_config() -> MazeConfig:
@@ -73,7 +73,7 @@ def _default_maze_config() -> MazeConfig:
         move_fn=default_move_fn,
         objective_fn=default_objective_fn,
         seed=None,
-        render_texture_map=DEFAULT_TEXTURE_MAP,
+        render_image_map=DEFAULT_IMAGE_MAP,
     )
 
 
@@ -378,7 +378,7 @@ def build_maze_config(current: object) -> MazeConfig:
     objective_fn = _objective_section(base)
     turn_limit = _run_section(base)
     seed = seed_section(key="maze_seed")
-    texture = texture_map_section(base)
+    image = image_map_section(base)
     return MazeConfig(
         width=width,
         height=height,
@@ -399,7 +399,7 @@ def build_maze_config(current: object) -> MazeConfig:
         move_fn=move_fn,
         objective_fn=objective_fn,
         seed=seed,
-        render_texture_map=texture,
+        render_image_map=image,
     )
 
 

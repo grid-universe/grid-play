@@ -2,12 +2,12 @@ from __future__ import annotations
 from typing import Protocol
 
 import streamlit as st
-from grid_universe.renderer.texture import TEXTURE_MAP_REGISTRY, TextureMap
+from grid_universe.renderer.image import IMAGE_MAP_REGISTRY, ImageMap
 
 
-class HasTextureMap(Protocol):
+class HasImageMap(Protocol):
     @property
-    def render_texture_map(self) -> TextureMap: ...
+    def render_image_map(self) -> ImageMap: ...
 
 
 def seed_section(*, key: str) -> int:
@@ -15,46 +15,46 @@ def seed_section(*, key: str) -> int:
     return st.number_input("Random seed", min_value=0, value=0, key=key)
 
 
-def _labels_for_texture_maps(texture_maps: list[TextureMap]) -> list[str]:
+def _labels_for_image_maps(image_maps: list[ImageMap]) -> list[str]:
     # Prefer registry names when the object identity matches; else provide fallback labels
-    inverse: dict[int, str] = {id(v): k for k, v in TEXTURE_MAP_REGISTRY.items()}
-    return [inverse.get(id(tm), f"Pack {i + 1}") for i, tm in enumerate(texture_maps)]
+    inverse: dict[int, str] = {id(v): k for k, v in IMAGE_MAP_REGISTRY.items()}
+    return [inverse.get(id(tm), f"Pack {i + 1}") for i, tm in enumerate(image_maps)]
 
 
-def texture_map_section(
-    current: HasTextureMap,
+def image_map_section(
+    current: HasImageMap,
     *,
-    label: str = "Texture Map",
-    key: str = "texture_map",
-    options: list[TextureMap] | None = None,
-) -> TextureMap:
+    label: str = "Image Map",
+    key: str = "image_map",
+    options: list[ImageMap] | None = None,
+) -> ImageMap:
     """
-    Texture-map selector with optional candidate list.
+    Image-map selector with optional candidate list.
 
     Behavior:
-    - If options is None, fall back to all maps in TEXTURE_MAP_REGISTRY (values).
+    - If options is None, fall back to all maps in IMAGE_MAP_REGISTRY (values).
     - If len(options) <= 1, returns the sole map without rendering a picker.
     - If multiple, renders a selectbox with friendly labels (registry names if available).
 
-    Returns the selected TextureMap (or the sole provided map).
+    Returns the selected ImageMap (or the sole provided map).
     """
-    texture_maps: list[TextureMap] = list(
-        TEXTURE_MAP_REGISTRY.values() if options is None else options
+    image_maps: list[ImageMap] = list(
+        IMAGE_MAP_REGISTRY.values() if options is None else options
     )
-    if not texture_maps:
+    if not image_maps:
         # Defensive: no maps available; this should not happen under normal usage
-        st.warning("No texture maps available; using default registry mapping.")
-        texture_maps = list(TEXTURE_MAP_REGISTRY.values())
+        st.warning("No image maps available; using default registry mapping.")
+        image_maps = list(IMAGE_MAP_REGISTRY.values())
 
-    if len(texture_maps) == 1:
+    if len(image_maps) == 1:
         # Single choice: no UI; return directly
-        return texture_maps[0]
+        return image_maps[0]
 
     # Multiple choices: render selector
     st.subheader(label)
-    labels = _labels_for_texture_maps(texture_maps)
+    labels = _labels_for_image_maps(image_maps)
     try:
-        current_index = texture_maps.index(current.render_texture_map)
+        current_index = image_maps.index(current.render_image_map)
     except ValueError:
         current_index = 0
 
@@ -65,4 +65,4 @@ def texture_map_section(
         key=key,
     )
     map_index = labels.index(chosen_label)
-    return texture_maps[map_index]
+    return image_maps[map_index]

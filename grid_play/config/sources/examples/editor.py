@@ -23,9 +23,9 @@ from grid_universe.levels.factories import (
 from grid_universe.gym_env import GridUniverseEnv
 from grid_universe.moves import MOVE_FN_REGISTRY
 from grid_universe.objectives import OBJECTIVE_FN_REGISTRY
-from grid_universe.renderer.texture import (
-    TextureMap,
-    TEXTURE_MAP_REGISTRY,
+from grid_universe.renderer.image import (
+    ImageMap,
+    IMAGE_MAP_REGISTRY,
     DEFAULT_ASSET_ROOT,
 )
 
@@ -276,7 +276,7 @@ PALETTE: dict[str, ToolSpec] = {
 # -----------------------
 
 
-def _asset_root_resolver(texture_map: TextureMap) -> str:
+def _asset_root_resolver(image_map: ImageMap) -> str:
     return DEFAULT_ASSET_ROOT
 
 
@@ -288,7 +288,7 @@ register_level_source(
     make_level_editor_source(
         name="Grid Universe Level Editor",
         palette=PALETTE,
-        texture_maps=list(TEXTURE_MAP_REGISTRY.values()),  # offer all built-in GU packs
+        image_maps=list(IMAGE_MAP_REGISTRY.values()),  # offer all built-in GU packs
         env_factory=None,  # use default GridUniverseEnv factory
         move_fn_registry=MOVE_FN_REGISTRY,
         objective_fn_registry=OBJECTIVE_FN_REGISTRY,

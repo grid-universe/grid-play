@@ -4,7 +4,7 @@ from typing import Callable
 
 from grid_universe.state import State
 from grid_universe.examples import gameplay_levels
-from grid_universe.renderer.texture import TextureMap
+from grid_universe.renderer.image import ImageMap
 from grid_universe.gym_env import GridUniverseEnv
 
 from grid_play.config.sources.base import register_level_source
@@ -33,7 +33,7 @@ BUILDERS: dict[str, Builder] = {
 
 
 def _env_factory(
-    initial_state_fn: Callable[..., State], texture_map: TextureMap
+    initial_state_fn: Callable[..., State], image_map: ImageMap
 ) -> GridUniverseEnv:
     sample = initial_state_fn()
     return GridUniverseEnv(
@@ -41,7 +41,7 @@ def _env_factory(
         initial_state_fn=initial_state_fn,
         width=sample.width,
         height=sample.height,
-        render_texture_map=texture_map,
+        render_image_map=image_map,
     )
 
 
@@ -50,7 +50,7 @@ source = make_level_selection_source(
     builders=BUILDERS,
     builder_returns_level=False,
     env_factory=_env_factory,
-    texture_maps=None,  # defaults to registry
+    image_maps=None,  # defaults to registry
 )
 
 register_level_source(source)

@@ -9,10 +9,10 @@ from grid_universe.state import State
 from grid_universe.levels.grid import Level
 from grid_universe.levels.convert import to_state as level_to_state
 from grid_universe.gym_env import GridUniverseEnv
-from grid_universe.renderer.texture import TextureMap, TEXTURE_MAP_REGISTRY
+from grid_universe.renderer.image import ImageMap, IMAGE_MAP_REGISTRY
 
 from .base import BaseConfig, LevelSource
-from ..shared_ui import seed_section, texture_map_section
+from ..shared_ui import seed_section, image_map_section
 
 # Builders produce either immutable State or mutable Level
 Builder = Callable[..., State] | Callable[..., Level]
@@ -21,7 +21,7 @@ Builder = Callable[..., State] | Callable[..., Level]
 @dataclass(frozen=True)
 class LevelSelectionConfig(BaseConfig):
     level_name: str
-    render_texture_map: TextureMap
+    render_image_map: ImageMap
 
 
 def make_level_selection_source(
@@ -29,25 +29,25 @@ def make_level_selection_source(
     name: str,
     builders: dict[str, Builder],
     builder_returns_level: bool,
-    env_factory: Callable[[Callable[..., State], TextureMap], GridUniverseEnv],
+    env_factory: Callable[[Callable[..., State], ImageMap], GridUniverseEnv],
     # If None, defaults to the registry values. If a single map is supplied, the picker is hidden.
-    texture_maps: list[TextureMap] | None = None,
+    image_maps: list[ImageMap] | None = None,
 ) -> LevelSource:
     """
     Construct a LevelSource for a set of named builders.
     """
     level_names: list[str] = list(builders.keys())
-    offered_maps: list[TextureMap] = list(
-        TEXTURE_MAP_REGISTRY.values() if texture_maps is None else texture_maps
+    offered_maps: list[ImageMap] = list(
+        IMAGE_MAP_REGISTRY.values() if image_maps is None else image_maps
     )
     if not offered_maps:
-        offered_maps = list(TEXTURE_MAP_REGISTRY.values())
+        offered_maps = list(IMAGE_MAP_REGISTRY.values())
 
     def _default_config() -> LevelSelectionConfig:
         return LevelSelectionConfig(
             level_name=level_names[0],
             seed=0,
-            render_texture_map=offered_maps[0],
+            render_image_map=offered_maps[0],
         )
 
     def _build_config(current: object) -> LevelSelectionConfig:
@@ -70,18 +70,18 @@ def make_level_selection_source(
         # Seed (shared UI)
         seed = seed_section(key=f"{name}_seed")
 
-        # Texture map (shared UI; single option -> no picker)
-        texture_map = texture_map_section(
+        # Image map (shared UI; single option -> no picker)
+        image_map = image_map_section(
             base,
-            label="Texture Map",
-            key=f"{name}_texture_map",
+            label="Image Map",
+            key=f"{name}_image_map",
             options=offered_maps,
         )
 
         return LevelSelectionConfig(
             level_name=level_name,
             seed=seed,
-            render_texture_map=texture_map,
+            render_image_map=image_map,
         )
 
     def _make_env(cfg: LevelSelectionConfig) -> GridUniverseEnv:
@@ -97,7 +97,7 @@ def make_level_selection_source(
                 return level_to_state(cast(Level, result))
             return cast(State, result)
 
-        return env_factory(_initial_state_fn, cfg.render_texture_map)
+        return env_factory(_initial_state_fn, cfg.render_image_map)
 
     return LevelSource(
         name=name,
