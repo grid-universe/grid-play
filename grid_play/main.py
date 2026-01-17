@@ -23,6 +23,8 @@ from grid_play.components import (
 from grid_play.ai import (
     show_agent_dialog,
     run_agent_step,
+    get_agent_vision,
+    get_agent_info,
 )
 from grid_play.plugins import import_plugins, import_plugin_files
 from grid_universe.gym_env import GridUniverseEnv, Observation, Action
@@ -120,59 +122,77 @@ with tab_game:
             if env.state.turn_limit is not None:
                 st.info(f"Turn: {env.state.turn} / {env.state.turn_limit}", icon="⏳")
 
-        st.divider()
+        tab_human, tab_agent = st.tabs(["Human", "Agent"])
 
-        _, up_col, _ = st.columns([1, 1, 1])
-        with up_col:
-            if st.button("⬆️", key="up_btn", width="stretch"):
-                do_action(env, Action.UP)
-        left_btn, down_btn, right_btn = st.columns([1, 1, 1])
-        with left_btn:
-            if st.button("⬅️", key="left_btn", width="stretch"):
-                do_action(env, Action.LEFT)
-        with down_btn:
-            if st.button("⬇️", key="down_btn", width="stretch"):
-                do_action(env, Action.DOWN)
-        with right_btn:
-            if st.button("➡️", key="right_btn", width="stretch"):
-                do_action(env, Action.RIGHT)
+        with tab_human:
+            _, up_col, _ = st.columns([1, 1, 1])
+            with up_col:
+                if st.button("⬆️", key="up_btn", width="stretch"):
+                    do_action(env, Action.UP)
+            left_btn, down_btn, right_btn = st.columns([1, 1, 1])
+            with left_btn:
+                if st.button("⬅️", key="left_btn", width="stretch"):
+                    do_action(env, Action.LEFT)
+            with down_btn:
+                if st.button("⬇️", key="down_btn", width="stretch"):
+                    do_action(env, Action.DOWN)
+            with right_btn:
+                if st.button("➡️", key="right_btn", width="stretch"):
+                    do_action(env, Action.RIGHT)
 
-        pickup_btn, usekey_btn, wait_btn = st.columns([1, 1, 1])
-        with pickup_btn:
-            if st.button("🤲 Pickup", key="pickup_btn", width="stretch"):
-                do_action(env, Action.PICK_UP)
-        with usekey_btn:
-            if st.button("🔑 Use", key="usekey_btn", width="stretch"):
-                do_action(env, Action.USE_KEY)
-        with wait_btn:
-            if st.button("⏳ Wait", key="wait_btn", width="stretch"):
-                do_action(env, Action.WAIT)
+            pickup_btn, usekey_btn, wait_btn = st.columns([1, 1, 1])
+            with pickup_btn:
+                if st.button("🤲 Pickup", key="pickup_btn", width="stretch"):
+                    do_action(env, Action.PICK_UP)
+            with usekey_btn:
+                if st.button("🔑 Use", key="usekey_btn", width="stretch"):
+                    do_action(env, Action.USE_KEY)
+            with wait_btn:
+                if st.button("⏳ Wait", key="wait_btn", width="stretch"):
+                    do_action(env, Action.WAIT)
 
-        action: Action | None = get_keyboard_action()
+            action: Action | None = get_keyboard_action()
 
-        agent_settings_btn, agent_step_btn = st.columns([1, 1])
-        agent_step: bool = False
+        with tab_agent:
+            agent_settings_btn, agent_step_btn = st.columns([1, 1])
+            agent_step: bool = False
 
-        with agent_settings_btn:
-            if st.button(
-                "Agent Settings", key="ai_open_dialog", width="stretch", icon="⚙️"
-            ):
-                show_agent_dialog(env)
+            agent: object | None = st.session_state.get("ai_agent")
+            if agent is None:
+                st.warning(
+                    "No agent loaded. Please load an agent in the Agent Settings dialog.",
+                    icon="⚠️",
+                )
 
-        with agent_step_btn:
-            if st.button("Agent Step", key="ai_step_btn", width="stretch", icon="✨"):
-                agent_step = True
+            with agent_settings_btn:
+                if st.button(
+                    "Agent Settings", key="ai_open_dialog", width="stretch", icon="⚙️"
+                ):
+                    show_agent_dialog(env)
 
-        if agent_step:
-            try:
-                action = run_agent_step(env)
-                st.info(f"Agent chose action: {action}")
-            except Exception as e:
-                st.error(e)
+            with agent_step_btn:
+                if st.button(
+                    "Agent Step", key="ai_step_btn", width="stretch", icon="✨"
+                ):
+                    agent_step = True
 
-        # Execute action from keyboard or agent
-        if action is not None:
-            do_action(env, action)
+            if agent_step:
+                try:
+                    action = run_agent_step(env)
+                    st.info(f"Agent chose action: {action}", icon="✨")
+                except Exception as e:
+                    st.error(e)
+
+            # Execute action from keyboard or agent
+            if action is not None:
+                do_action(env, action)
+
+            vision_img = get_agent_vision(env)
+            if vision_img is not None:
+                st.image(vision_img, width="stretch")
+            agent_info = get_agent_info()
+            if agent_info:
+                st.json(agent_info)
 
     with left_col:
         state = env.state
