@@ -102,18 +102,10 @@ with tab_game:
         info: dict[str, object] = st.session_state["info"]
 
         if env.state:
-            maze_rule = (
-                env.state.move_fn.__name__.replace("_", " ")
-                .replace("fn", "")
-                .capitalize()
-            )
+            maze_rule = env.state.movement.description
             st.info(f"{maze_rule}", icon="🚶")
 
-            objective = (
-                env.state.objective_fn.__name__.replace("_", " ")
-                .replace("fn", "")
-                .capitalize()
-            )
+            objective = env.state.objective.description
             message = env.state.message
 
             st.info(f"{objective}", icon="🎯")

@@ -21,8 +21,8 @@ from grid_universe.levels.factories import (
     create_wall,
 )
 from grid_universe.gym_env import GridUniverseEnv
-from grid_universe.moves import MOVE_FN_REGISTRY
-from grid_universe.objectives import OBJECTIVE_FN_REGISTRY
+from grid_universe.movements import MOVEMENT_REGISTRY
+from grid_universe.objectives import OBJECTIVE_REGISTRY
 from grid_universe.renderer.image import (
     ImageMap,
     IMAGE_MAP_REGISTRY,
@@ -294,8 +294,8 @@ register_level_source(
         palette=PALETTE,
         image_maps=list(IMAGE_MAP_REGISTRY.values()),  # offer all built-in GU packs
         env_factory=None,  # use default GridUniverseEnv factory
-        move_fn_registry=MOVE_FN_REGISTRY,
-        objective_fn_registry=OBJECTIVE_FN_REGISTRY,
+        movement_registry=MOVEMENT_REGISTRY,
+        objective_registry=OBJECTIVE_REGISTRY,
         asset_root_resolver=_asset_root_resolver,
         env_class=GridUniverseEnv,
     )

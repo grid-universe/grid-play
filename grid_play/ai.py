@@ -28,7 +28,9 @@ class Agent:
     def parse(self, obs: Observation) -> Level:
         # Optional: implement if you want to see agent vision
         from grid_universe.levels.grid import Level
-        return Level(5, 5, None, objective_fn=None)  # Dummy implementation
+        from grid_universe.movements import CardinalMovement
+        from grid_universe.objectives import ExitObjective
+        return Level(5, 5, None, movement=CardinalMovement(), objective=ExitObjective())  # Dummy implementation
 
     def info(self) -> dict[str, Any]:
         # Optional: return info about the agent

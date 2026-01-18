@@ -17,9 +17,13 @@ from grid_universe.examples.maze import (
     PowerupSpec,
     MovementType,
 )
-from grid_universe.types import EffectLimit, EffectType, MoveFn, ObjectiveFn
-from grid_universe.moves import MOVE_FN_REGISTRY, default_move_fn
-from grid_universe.objectives import OBJECTIVE_FN_REGISTRY, default_objective_fn
+from grid_universe.types import EffectLimit, EffectType
+from grid_universe.movements import MOVEMENT_REGISTRY, CardinalMovement, BaseMovement
+from grid_universe.objectives import (
+    OBJECTIVE_REGISTRY,
+    CollectAndExitObjective,
+    BaseObjective,
+)
 from grid_universe.renderer.image import DEFAULT_IMAGE_MAP, ImageMap
 
 from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
@@ -47,8 +51,8 @@ class MazeConfig(BaseConfig):
     hazards: list[HazardSpec]
     enemies: list[EnemySpec]
     wall_percentage: float
-    move_fn: MoveFn
-    objective_fn: ObjectiveFn
+    movement: BaseMovement
+    objective: BaseObjective
     render_image_map: ImageMap
 
 
@@ -70,8 +74,8 @@ def _default_maze_config() -> MazeConfig:
         hazards=list(DEFAULT_HAZARDS),
         enemies=list(DEFAULT_ENEMIES),
         wall_percentage=0.8,
-        move_fn=default_move_fn,
-        objective_fn=default_objective_fn,
+        movement=CardinalMovement(),
+        objective=CollectAndExitObjective(),
         seed=None,
         render_image_map=DEFAULT_IMAGE_MAP,
     )
@@ -335,32 +339,38 @@ def _enemies_section(cfg: MazeConfig) -> list[EnemySpec]:
     return edited
 
 
-def _movement_section(cfg: MazeConfig) -> MoveFn:
+def _movement_section(cfg: MazeConfig) -> BaseMovement:
     st.subheader("Gameplay Movement")
-    names = list(MOVE_FN_REGISTRY.keys())
+    names = list(MOVEMENT_REGISTRY.keys())
+    # Find current movement by name
+    current_key = next(
+        (k for k, v in MOVEMENT_REGISTRY.items() if v.name == cfg.movement.name),
+        names[0] if names else "cardinal",
+    )
     label = st.selectbox(
         "Movement rule",
         names,
-        index=names.index(
-            next(k for k, v in MOVE_FN_REGISTRY.items() if v is cfg.move_fn)
-        ),
-        key="move_fn",
+        index=names.index(current_key),
+        key="movement",
     )
-    return MOVE_FN_REGISTRY[label]
+    return MOVEMENT_REGISTRY[label]
 
 
-def _objective_section(cfg: MazeConfig) -> ObjectiveFn:
+def _objective_section(cfg: MazeConfig) -> BaseObjective:
     st.subheader("Gameplay Objective")
-    names = list(OBJECTIVE_FN_REGISTRY.keys())
+    names = list(OBJECTIVE_REGISTRY.keys())
+    # Find current objective by name
+    current_key = next(
+        (k for k, v in OBJECTIVE_REGISTRY.items() if v.name == cfg.objective.name),
+        names[0] if names else "exit",
+    )
     label = st.selectbox(
         "Objective",
         names,
-        index=names.index(
-            next(k for k, v in OBJECTIVE_FN_REGISTRY.items() if v is cfg.objective_fn)
-        ),
-        key="objective_fn",
+        index=names.index(current_key),
+        key="objective",
     )
-    return OBJECTIVE_FN_REGISTRY[label]
+    return OBJECTIVE_REGISTRY[label]
 
 
 def build_maze_config(current: object) -> MazeConfig:
@@ -374,8 +384,8 @@ def build_maze_config(current: object) -> MazeConfig:
     hazards = _hazards_section()
     powerups = _powerups_section()
     enemies = _enemies_section(base)
-    move_fn = _movement_section(base)
-    objective_fn = _objective_section(base)
+    movement = _movement_section(base)
+    objective = _objective_section(base)
     turn_limit = _run_section(base)
     seed = seed_section(key="maze_seed")
     image = image_map_section(base)
@@ -396,18 +406,22 @@ def build_maze_config(current: object) -> MazeConfig:
         hazards=hazards,
         enemies=enemies,
         wall_percentage=wall_pct,
-        move_fn=move_fn,
-        objective_fn=objective_fn,
+        movement=movement,
+        objective=objective,
         seed=seed,
         render_image_map=image,
     )
 
 
 def _make_env(cfg: MazeConfig) -> GridUniverseEnv:
+    # Convert config to dict but keep movement and objective as objects
+    cfg_dict = dataclasses.asdict(cfg)
+    cfg_dict["movement"] = cfg.movement
+    cfg_dict["objective"] = cfg.objective
     return GridUniverseEnv(
         render_mode="rgb_array",
         initial_state_fn=generate,
-        **dataclasses.asdict(cfg),
+        **cfg_dict,
     )
 
 

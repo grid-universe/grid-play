@@ -103,9 +103,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
     sample = _initial_state_fn()
     st.session_state["cipher_last_selection"] = {
         "cipher": sample.message or "",
-        "objective_fn": getattr(
-            sample.objective_fn, "__name__", str(sample.objective_fn)
-        ),
+        "objective": sample.objective.name,
     }
     env = GridUniverseEnv(
         render_mode="rgb_array",
@@ -115,7 +113,7 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
         render_image_map=cfg.render_image_map,
     )
 
-    cipher_objective_levels.patch_env_redact_objective_fn(env)
+    cipher_objective_levels.patch_env_redact_objective(env)
 
     return env
 
