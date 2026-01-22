@@ -196,12 +196,16 @@ with tab_game:
             if agent_id is not None:
                 health = state.health[agent_id]
                 st.info(
-                    f"**Health Point:** {health.health} / {health.max_health}", icon="❤️"
+                    f"**Health Point:** {health.current_health} / {health.max_health}",
+                    icon="❤️",
                 )
                 prev_health = st.session_state["prev_health"]
-                if health.health < prev_health:
-                    st.toast(f"Taking {health.health - prev_health} damage!", icon="🔥")
-                    st.session_state["prev_health"] = health.health
+                if health.current_health < prev_health:
+                    st.toast(
+                        f"Taking {health.current_health - prev_health} damage!",
+                        icon="🔥",
+                    )
+                    st.session_state["prev_health"] = health.current_health
 
                 display_powerup_status(state, state.status[agent_id])
                 display_inventory(state, state.inventory[agent_id])

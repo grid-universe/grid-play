@@ -35,6 +35,6 @@ def make_env_and_reset(
     if env.state is not None and env.agent_id is not None:
         agent_id = env.agent_id
         if agent_id in env.state.health:
-            st.session_state["prev_health"] = env.state.health[agent_id].health
+            st.session_state["prev_health"] = env.state.health[agent_id].current_health
         else:
             st.session_state["prev_health"] = 0
