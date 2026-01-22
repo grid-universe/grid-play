@@ -21,10 +21,10 @@ from grid_play.components import (
     do_action,
 )
 from grid_play.ai import (
-    show_agent_dialog,
-    run_agent_step,
-    get_agent_vision,
-    get_agent_info,
+    show_ai_agent_dialog,
+    run_ai_agent_step,
+    get_ai_agent_vision,
+    get_ai_agent_info,
 )
 from grid_play.plugins import import_plugins, import_plugin_files
 from grid_universe.gym_env import GridUniverseEnv, Observation, Action
@@ -114,7 +114,7 @@ with tab_game:
             if env.state.turn_limit is not None:
                 st.info(f"Turn: {env.state.turn} / {env.state.turn_limit}", icon="⏳")
 
-        tab_human, tab_agent = st.tabs(["Human", "Agent"])
+        tab_human, tab_ai_agent = st.tabs(["Human", "AI Agent"])
 
         with tab_human:
             _, up_col, _ = st.columns([1, 1, 1])
@@ -145,46 +145,48 @@ with tab_game:
 
             action: Action | None = get_keyboard_action()
 
-        with tab_agent:
-            agent_settings_btn, agent_step_btn = st.columns([1, 1])
-            agent_step: bool = False
+        with tab_ai_agent:
+            ai_agent_settings_btn, ai_agent_step_btn = st.columns([1, 1])
+            ai_agent_step: bool = False
 
-            agent: object | None = st.session_state.get("ai_agent")
-            if agent is None:
+            ai_agent: object | None = st.session_state.get("ai_agent")
+            if ai_agent is None:
                 st.warning(
-                    "No agent loaded. Please load an agent in the Agent Settings dialog.",
+                    "No AI agent loaded. Please load an AI agent in the Settings dialog.",
                     icon="⚠️",
                 )
 
-            with agent_settings_btn:
+            with ai_agent_settings_btn:
                 if st.button(
-                    "Agent Settings", key="ai_open_dialog", width="stretch", icon="⚙️"
+                    "Settings", key="ai_open_dialog", width="stretch", icon="⚙️"
                 ):
-                    show_agent_dialog(env)
+                    show_ai_agent_dialog(env)
 
-            with agent_step_btn:
+            with ai_agent_step_btn:
                 if st.button(
-                    "Agent Step", key="ai_step_btn", width="stretch", icon="✨"
+                    "Step", key="ai_step_btn", width="stretch", icon="✨"
                 ):
-                    agent_step = True
+                    ai_agent_step = True
 
-            if agent_step:
+            if ai_agent_step:
                 try:
-                    action = run_agent_step(env)
-                    st.info(f"Agent chose action: {action}", icon="✨")
+                    action = run_ai_agent_step(env)
+                    st.info(f"AI Agent chose action: {action}", icon="✨")
                 except Exception as e:
                     st.error(e)
 
-            # Execute action from keyboard or agent
+            # Execute action from keyboard or AI agent
             if action is not None:
                 do_action(env, action)
 
-            vision_img = get_agent_vision(env)
+            vision_img = get_ai_agent_vision(env)
             if vision_img is not None:
+                st.text("Vision:")
                 st.image(vision_img, width="stretch")
-            agent_info = get_agent_info()
-            if agent_info:
-                st.json(agent_info)
+            ai_agent_info = get_ai_agent_info()
+            if ai_agent_info:
+                st.text("Info:")
+                st.json(ai_agent_info)
 
     with left_col:
         state = env.state

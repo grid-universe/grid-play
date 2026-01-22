@@ -30,11 +30,11 @@ class Agent:
         from grid_universe.levels.grid import Level
         from grid_universe.movements import CardinalMovement
         from grid_universe.objectives import ExitObjective
-        return Level(5, 5, None, movement=CardinalMovement(), objective=ExitObjective())  # Dummy implementation
+        return Level(5, 5, movement=CardinalMovement(), objective=ExitObjective())  # Dummy implementation
 
     def info(self) -> dict[str, Any]:
         # Optional: return info about the agent
-        return {"name": "Random Agent"}
+        return {"name": "Random AI Agent"}
 """
 
 
@@ -48,7 +48,7 @@ class AgentProtocol(Protocol):
 AgentObsMode: TypeAlias = Literal["Observation (rgb_image)", "Level"]
 
 
-def load_agent_from_source(source: str) -> tuple[object | None, str | None]:
+def load_ai_agent_from_source(source: str) -> tuple[object | None, str | None]:
     """
     Compile user source containing class Agent with signature:
         class Agent:
@@ -56,7 +56,7 @@ def load_agent_from_source(source: str) -> tuple[object | None, str | None]:
             def step(self, obs: Level | Observation) -> Action: ...
             def parse(self, obs: Observation) -> Level: ...
             def info(self) -> dict[str, Any]: ...
-    Returns (agent_instance, error_message).
+    Returns (ai_agent_instance, error_message).
     """
     mod = types.ModuleType("ai_agent_user_module")
     try:
@@ -80,7 +80,7 @@ def load_agent_from_source(source: str) -> tuple[object | None, str | None]:
     return agent, None
 
 
-def agent_observation(env: GridUniverseEnv, mode: AgentObsMode) -> Level | Observation:
+def ai_agent_observation(env: GridUniverseEnv, mode: AgentObsMode) -> Level | Observation:
     """
     Return observation for agent, independent of env's observation_type.
     """
@@ -96,7 +96,7 @@ def agent_observation(env: GridUniverseEnv, mode: AgentObsMode) -> Level | Obser
     return env._get_obs()
 
 
-def get_agent_vision(env: GridUniverseEnv) -> PILImage | None:
+def get_ai_agent_vision(env: GridUniverseEnv) -> PILImage | None:
     """
     Run agent.parse(obs) -> Level -> State -> Rendered Image.
     Returns None if agent not loaded, parse not implemented, or errors occur.
@@ -113,7 +113,7 @@ def get_agent_vision(env: GridUniverseEnv) -> PILImage | None:
         mode: AgentObsMode = (
             st.session_state.get("ai_obs_mode") or "Observation (rgb_image)"
         )
-        obs: Observation | Level = agent_observation(env, mode)
+        obs: Observation | Level = ai_agent_observation(env, mode)
         level_result: Any
         if isinstance(obs, Level):
             st.warning("Agent observation is Level.", icon="🧩")
@@ -130,12 +130,13 @@ def get_agent_vision(env: GridUniverseEnv) -> PILImage | None:
         assert env._image_renderer is not None
         return env._image_renderer.render(state)
     except Exception:
+        st.error(f"Error during agent vision parsing:\n{traceback.format_exc()}")
         pass
 
     return None
 
 
-def get_agent_info() -> dict[str, Any]:
+def get_ai_agent_info() -> dict[str, Any]:
     """
     Get agent info string from agent.info() if available.
     """
@@ -158,7 +159,7 @@ def get_agent_info() -> dict[str, Any]:
     return {}
 
 
-def run_agent_step(env: GridUniverseEnv) -> Action | None:
+def run_ai_agent_step(env: GridUniverseEnv) -> Action | None:
     """
     Compute one action from the loaded agent using the current observation mode.
     """
@@ -171,16 +172,16 @@ def run_agent_step(env: GridUniverseEnv) -> Action | None:
         mode: AgentObsMode = (
             st.session_state.get("ai_obs_mode") or "Observation (rgb_image)"
         )
-        obs_for_agent = agent_observation(env, mode)
+        obs_for_agent = ai_agent_observation(env, mode)
         return agent.step(obs_for_agent)
     except Exception as e:
         raise RuntimeError(f"Error during agent step: {e}") from e
 
 
-@st.dialog("Agent Settings", width="large")
-def show_agent_dialog(env: GridUniverseEnv) -> None:
+@st.dialog("AI Agent Settings", width="large")
+def show_ai_agent_dialog(env: GridUniverseEnv) -> None:
     """
-    Dialog for specifying Agent code, observation mode, and loading the Agent.
+    Dialog for specifying AI Agent code, observation mode, and loading the AI Agent.
     """
     # Defaults
     st.session_state.setdefault("ai_code", AGENT_CODE_TEMPLATE)
@@ -190,30 +191,30 @@ def show_agent_dialog(env: GridUniverseEnv) -> None:
 
     # Observation mode
     obs_mode = st.selectbox(
-        "Agent observation type",
+        "AI Agent observation type",
         options=["Observation (rgb_image)", "Level"],
         index=0 if st.session_state["ai_obs_mode"] == "Observation (rgb_image)" else 1,
         key="ai_obs_mode_widget",
         help="Choose what your Agent.step(obs) receives.",
     )
 
-    # Agent code input
+    # AI Agent code input
     code = st.text_area(
-        "Agent code",
+        "AI Agent code",
         value=st.session_state["ai_code"],
         height=CODE_EDITOR_HEIGHT,
         key="ai_code_widget",
     )
 
     # Load button only
-    if st.button("Load Agent", use_container_width=True, key="ai_dialog_load"):
+    if st.button("Load AI Agent", use_container_width=True, key="ai_dialog_load"):
         st.session_state["ai_obs_mode"] = obs_mode
         st.session_state["ai_code"] = code
         st.session_state["ai_agent"], st.session_state["ai_error"] = (
-            load_agent_from_source(code)
+            load_ai_agent_from_source(code)
         )
         if st.session_state["ai_error"]:
             st.error(st.session_state["ai_error"])
         elif st.session_state["ai_agent"] is not None:
-            st.success("Agent loaded.")
+            st.success("AI Agent loaded.")
             st.rerun()
