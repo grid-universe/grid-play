@@ -63,10 +63,10 @@ class ToolSpec:
 
 def _default_editor_config() -> EditorConfig:
     width, height = 9, 7
-    base_row: tuple[tuple[EditorToken, ...], ...] = tuple(
-        (EditorToken(type="floor", params={"cost": 1}),) for _ in range(width)
+    base_col: tuple[tuple[EditorToken, ...], ...] = tuple(
+        (EditorToken(type="floor", params={"cost": 1}),) for _ in range(height)
     )
-    snapshot: TokenGridSnapshot = tuple(base_row for _ in range(height))
+    snapshot: TokenGridSnapshot = tuple(base_col for _ in range(width))
     # Placeholders; caller must provide registries and image maps via build_editor_config
     return EditorConfig(
         width=width,
@@ -84,18 +84,18 @@ def _ensure_working_grid(width: int, height: int) -> WorkingGrid:
     key = "editor_working_grid"
     if key not in st.session_state:
         st.session_state[key] = [
-            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(width)]
-            for _ in range(height)
+            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(height)]
+            for _ in range(width)
         ]
     grid: WorkingGrid = st.session_state[key]
-    if len(grid) != height or len(grid[0]) != width:
+    if len(grid) != width or len(grid[0]) != height:
         new_grid: WorkingGrid = [
-            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(width)]
-            for _ in range(height)
+            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(height)]
+            for _ in range(width)
         ]
-        for yy in range(min(height, len(grid))):
-            for xx in range(min(width, len(grid[0]))):
-                new_grid[yy][xx] = list(grid[yy][xx])
+        for xx in range(min(width, len(grid))):
+            for yy in range(min(height, len(grid[0]))):
+                new_grid[xx][yy] = list(grid[xx][yy])
         st.session_state[key] = new_grid
         grid = new_grid
     return grid
@@ -117,12 +117,12 @@ def place_tool(
     grid: WorkingGrid,
     params: EditorParams | None = None,
 ) -> None:
-    cell = grid[y][x]
+    cell = grid[x][y]
     p = params or {}
 
     if tool_key == "erase":
         floor = _ensure_floor(cell)
-        grid[y][x] = [floor]
+        grid[x][y] = [floor]
         return
 
     if tool_key == "floor":
@@ -130,20 +130,20 @@ def place_tool(
         if "cost" in p:
             new_cost = int(p["cost"])
             updated = EditorToken(type="floor", params={"cost": new_cost})
-            grid[y][x] = [updated] + [t for t in cell if t.type != "floor"]
+            grid[x][y] = [updated] + [t for t in cell if t.type != "floor"]
         else:
-            grid[y][x] = [floor] + [t for t in cell if t.type != "floor"]
+            grid[x][y] = [floor] + [t for t in cell if t.type != "floor"]
         return
 
     floor = _ensure_floor(cell)
     tool = EditorToken(type=tool_key, params=dict(p))
-    grid[y][x] = [floor, tool]
+    grid[x][y] = [floor, tool]
 
 
 def _pair_portals(grid: WorkingGrid) -> None:
     portals: list[tuple[int, int]] = []
-    for yy, row in enumerate(grid):
-        for xx, cell in enumerate(row):
+    for xx, col in enumerate(grid):
+        for yy, cell in enumerate(col):
             if any(t.type == "portal" for t in cell):
                 portals.append((xx, yy))
     st.session_state["editor_portal_pairs"] = [
@@ -155,9 +155,9 @@ def snapshot_grid(grid: WorkingGrid) -> TokenGridSnapshot:
     return tuple(
         tuple(
             tuple(EditorToken(type=t.type, params=dict(t.params)) for t in cell)
-            for cell in row
+            for cell in col
         )
-        for row in grid
+        for col in grid
     )
 
 
@@ -174,9 +174,9 @@ def build_level_from_tokens(
     )
     portal_specs: dict[tuple[int, int], BaseEntity] = {}
 
-    for y in range(cfg.height):
-        for x in range(cfg.width):
-            for token in cfg.grid_tokens[y][x]:
+    for x in range(cfg.width):
+        for y in range(cfg.height):
+            for token in cfg.grid_tokens[x][y]:
                 ttype = token.type
                 if ttype == "erase":
                     continue
@@ -266,9 +266,9 @@ def generate_code_from_palette(
     portal_positions: list[tuple[int, int]] = []
 
     # Collect tool placements
-    for y in range(cfg.height):
-        for x in range(cfg.width):
-            tokens = [t for t in cfg.grid_tokens[y][x] if t.type != "erase"]
+    for x in range(cfg.width):
+        for y in range(cfg.height):
+            tokens = [t for t in cfg.grid_tokens[x][y] if t.type != "erase"]
             if not tokens:
                 continue
 
@@ -533,7 +533,7 @@ def build_editor_config(
         for yy in range(height):
             cols = st.columns(width)
             for xx in range(width):
-                cell = grid[yy][xx]
+                cell = grid[xx][yy]
                 icons = "".join(
                     _tool_icon(palette, t.type) if t.type != "floor" else ""
                     for t in cell
