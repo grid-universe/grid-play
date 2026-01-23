@@ -5,7 +5,7 @@ from typing import Callable
 from grid_universe.state import State
 from grid_universe.examples import gameplay_levels
 from grid_universe.renderer.image import ImageMap
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.env import GridUniverseEnv
 
 from grid_play.config.sources.base import register_level_source
 from grid_play.config.sources.level_selection import (
@@ -48,7 +48,7 @@ def _env_factory(
 source = make_level_selection_source(
     name="Grid Universe Gameplay Example",
     builders=BUILDERS,
-    builder_returns_level=False,
+    builder_returns_gridstate=False,
     env_factory=_env_factory,
     image_maps=None,  # defaults to registry
 )

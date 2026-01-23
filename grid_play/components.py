@@ -10,7 +10,7 @@ from grid_universe.components.effects import (
 )
 from grid_play.keyup import keyup
 from grid_universe.components import Status, Inventory
-from grid_universe.gym_env import GridUniverseEnv, Action
+from grid_universe.env import GridUniverseEnv, Action
 from grid_universe.state import State
 from grid_universe.types import EffectLimit, EffectLimitAmount, EffectType, EntityID
 

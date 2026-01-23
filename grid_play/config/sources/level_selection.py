@@ -6,16 +6,16 @@ from typing import Callable, cast
 import streamlit as st
 
 from grid_universe.state import State
-from grid_universe.levels.grid import Level
-from grid_universe.levels.convert import to_state as level_to_state
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.grid.gridstate import GridState
+from grid_universe.grid.convert import to_state as gridstate_to_state
+from grid_universe.env import GridUniverseEnv
 from grid_universe.renderer.image import ImageMap, IMAGE_MAP_REGISTRY
 
 from .base import BaseConfig, LevelSource
 from ..shared_ui import seed_section, image_map_section
 
-# Builders produce either immutable State or mutable Level
-Builder = Callable[..., State] | Callable[..., Level]
+# Builders produce either immutable State or mutable GridState
+Builder = Callable[..., State] | Callable[..., GridState]
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ def make_level_selection_source(
     *,
     name: str,
     builders: dict[str, Builder],
-    builder_returns_level: bool,
+    builder_returns_gridstate: bool,
     env_factory: Callable[[Callable[..., State], ImageMap], GridUniverseEnv],
     # If None, defaults to the registry values. If a single map is supplied, the picker is hidden.
     image_maps: list[ImageMap] | None = None,
@@ -93,8 +93,8 @@ def make_level_selection_source(
         def _initial_state_fn(**_ignored: object) -> State:
             seed_val = cfg.seed if cfg.seed is not None else 0
             result = builder(seed_val)
-            if builder_returns_level:
-                return level_to_state(cast(Level, result))
+            if builder_returns_gridstate:
+                return gridstate_to_state(cast(GridState, result))
             return cast(State, result)
 
         return env_factory(_initial_state_fn, cfg.render_image_map)

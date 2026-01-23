@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import streamlit as st
-from grid_universe.levels.factories import (
+from grid_universe.grid.factories import (
     create_agent,
     create_box,
     create_coin,
@@ -20,7 +20,7 @@ from grid_universe.levels.factories import (
     create_speed_effect,
     create_wall,
 )
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.env import GridUniverseEnv
 from grid_universe.movements import MOVEMENT_REGISTRY
 from grid_universe.objectives import OBJECTIVE_REGISTRY
 from grid_universe.renderer.image import (

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import streamlit as st
 from grid_universe.state import State
 
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.env import GridUniverseEnv
 from grid_universe.examples import cipher_objective_levels
 from grid_universe.renderer.image import DEFAULT_IMAGE_MAP, ImageMap
 

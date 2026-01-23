@@ -4,7 +4,7 @@ import dataclasses
 from dataclasses import dataclass
 import streamlit as st
 
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.env import GridUniverseEnv
 from grid_universe.examples.maze import (
     generate,
     DEFAULT_BOXES,

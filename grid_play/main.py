@@ -27,7 +27,7 @@ from grid_play.ai import (
     get_ai_agent_info,
 )
 from grid_play.plugins import import_plugins, import_plugin_files
-from grid_universe.gym_env import GridUniverseEnv, Observation, Action
+from grid_universe.env import GridUniverseEnv, ImageObservation, Action
 
 # --------- Built-in Level Sources ---------
 
@@ -98,7 +98,7 @@ with tab_game:
 
         # Need to put after generate maze
         env: GridUniverseEnv = st.session_state["env"]
-        obs: Observation = st.session_state["obs"]
+        obs: ImageObservation = st.session_state["obs"]
         info: dict[str, object] = st.session_state["info"]
 
         if env.state:
@@ -163,9 +163,7 @@ with tab_game:
                     show_ai_agent_dialog(env)
 
             with ai_agent_step_btn:
-                if st.button(
-                    "Step", key="ai_step_btn", width="stretch", icon="✨"
-                ):
+                if st.button("Step", key="ai_step_btn", width="stretch", icon="✨"):
                     ai_agent_step = True
 
             if ai_agent_step:
@@ -223,7 +221,7 @@ with tab_game:
             img_compressed = img.convert("P")  # Converts to 8-bit palette mode
             st.image(img_compressed, width="stretch")
         if obs:
-            # Re-fetch current observation, otherwise info may be stale
+            # Re-fetch current ImageObservation, otherwise info may be stale
             current_obs = env._get_obs()
             if isinstance(current_obs, dict) and "info" in current_obs:
                 st.json(current_obs["info"], expanded=1)

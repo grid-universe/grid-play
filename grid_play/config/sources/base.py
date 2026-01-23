@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from grid_universe.gym_env import GridUniverseEnv
+from grid_universe.env import GridUniverseEnv
 
 
 @dataclass(frozen=True)
