@@ -12,7 +12,7 @@ The Game tab provide information on the current representation of an ongoing gam
 | -- | -- |
 | Left Column | Overall Information of the game |
 | Middle Column | Game View using `Observation` Class |
-| Right Column ! Agent Control Panel |
+| Right Column | Agent Control Panel |
 
 ### Left Column - Player Status
 
