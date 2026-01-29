@@ -2,7 +2,7 @@
 
 The State tab provides a complete view of the internal game state, useful for debugging, understanding game mechanics, and developing AI agents.
 
-!!! warning "WARNING ON STATE SPACE"
+!!! warning "WARNING ON STATE REPRESENTATION"
     The state page uses the `State` representation. The Capstone Project can be solved without using the **State Representation**, however the State Representation is included for a lower level access to the representation.
 
 ## Overview
