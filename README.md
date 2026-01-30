@@ -2,6 +2,8 @@
 
 A web-based playground for building, configuring, and playing Grid Universe games. Built with Streamlit, Grid Play provides an interactive browser-based interface for playing gridworld games, testing levels, and experimenting with AI agents.
 
+Please refer to [Grid Play documentation](https://grid-universe.github.io/grid-play/) for more details.
+
 ## Install
 
 ```bash
