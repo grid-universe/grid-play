@@ -20,7 +20,6 @@ from grid_universe.grid.factories import (
     create_speed_effect,
     create_wall,
 )
-from grid_universe.env import GridUniverseEnv
 from grid_universe.movements import MOVEMENT_REGISTRY
 from grid_universe.objectives import OBJECTIVE_REGISTRY
 from grid_universe.renderer.image import (
@@ -297,6 +296,5 @@ register_level_source(
         movement_registry=MOVEMENT_REGISTRY,
         objective_registry=OBJECTIVE_REGISTRY,
         asset_root_resolver=_asset_root_resolver,
-        env_class=GridUniverseEnv,
     )
 )
