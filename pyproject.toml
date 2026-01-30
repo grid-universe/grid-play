@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "mypy", "ruff", "types-Pillow"]
+docs = ["mkdocs-material"]
 
 [tool.setuptools.packages.find]
 where = ["."]

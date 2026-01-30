@@ -1,0 +1,20 @@
+site_name: Grid Play
+site_description: Interactive playground for Grid Universe games
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+
+nav:
+  - Home: index.md
+  - Player Tutorial:
+      - Game: tutorial/game.md
+      - Config: tutorial/config.md
+      - State: tutorial/state.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
