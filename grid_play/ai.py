@@ -5,9 +5,8 @@ from typing import Any, Protocol, Type, Literal, TypeAlias
 import streamlit as st
 
 from grid_universe.grid.gridstate import GridState
-from grid_universe.grid.convert import from_state as gridstate_from_state, to_state
+from grid_universe.grid.convert import to_state
 from grid_universe.env import GridUniverseEnv, ImageObservation, Action
-from grid_universe.state import State
 from PIL.Image import Image as PILImage
 
 CODE_EDITOR_HEIGHT = 400
@@ -87,13 +86,7 @@ def ai_agent_observation(
     Return observation for agent, independent of env's observation_type.
     """
     if mode == "GridState":
-        if env.state is None:
-            raise ValueError(
-                "No environment state available to produce GridState observation."
-            )
-        # Type-narrowing branch ensures env.state is State for type checker
-        state: State = env.state
-        return gridstate_from_state(state)
+        return env.gridstate
 
     return env._get_obs()
 
