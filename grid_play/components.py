@@ -1,5 +1,10 @@
 from __future__ import annotations
-from pyrsistent import PMap
+
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass
+from enum import Enum
+from typing import Any, TypeAlias, cast
+
 import streamlit as st
 from grid_universe.components.effects import (
     Immunity,
@@ -27,18 +32,45 @@ POWERUP_ICONS: dict[str, str] = {
     "boots": "⚡",
 }
 
+JsonValue: TypeAlias = (
+    None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+)
+
+
+def to_json_value(value: Any) -> JsonValue:
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, Enum):
+        return to_json_value(value.value)
+    if isinstance(value, Mapping):
+        return {str(k): to_json_value(v) for k, v in value.items()}
+    if isinstance(value, set | frozenset):
+        return [to_json_value(item) for item in sorted(value, key=repr)]
+    if isinstance(value, list | tuple):
+        return [to_json_value(item) for item in value]
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: to_json_value(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if callable(value):
+        return getattr(value, "__name__", repr(value))
+    return repr(value)
+
+
+def state_description_json(state: State) -> dict[str, JsonValue]:
+    return cast(dict[str, JsonValue], to_json_value(state.description))
+
 
 def get_effect_types(state: State, effect_id: EntityID) -> list[EffectType]:
     effect_types: list[EffectType] = []
-    effect_type_ids: list[
-        tuple[EffectType, PMap[EntityID, Immunity]]
-        | tuple[EffectType, PMap[EntityID, Phasing]]
-        | tuple[EffectType, PMap[EntityID, Speed]]
-    ] = [
+    effect_type_ids: tuple[
+        tuple[EffectType, Mapping[EntityID, Immunity | Phasing | Speed]], ...
+    ] = (
         (EffectType.IMMUNITY, state.immunity),
         (EffectType.PHASING, state.phasing),
         (EffectType.SPEED, state.speed),
-    ]
+    )
     for effect_type, effect_ids in effect_type_ids:
         if effect_id in effect_ids:
             effect_types.append(effect_type)
@@ -49,13 +81,12 @@ def get_effect_limits(
     state: State, effect_id: EntityID
 ) -> list[tuple[EffectLimit, EffectLimitAmount]]:
     effect_limits: list[tuple[EffectLimit, EffectLimitAmount]] = []
-    limit_type_ids: list[
-        tuple[EffectLimit, PMap[EntityID, TimeLimit]]
-        | tuple[EffectLimit, PMap[EntityID, UsageLimit]]
-    ] = [
+    limit_type_ids: tuple[
+        tuple[EffectLimit, Mapping[EntityID, TimeLimit | UsageLimit]], ...
+    ] = (
         (EffectLimit.TIME, state.time_limit),
         (EffectLimit.USAGE, state.usage_limit),
-    ]
+    )
     for limit_type, limit_map in limit_type_ids:
         if effect_id in limit_map:
             effect_limits.append((limit_type, limit_map[effect_id].amount))

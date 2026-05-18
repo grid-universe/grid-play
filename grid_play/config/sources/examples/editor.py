@@ -10,7 +10,6 @@ from grid_universe.grid.factories import (
     create_core,
     create_door,
     create_exit,
-    create_floor,
     create_hazard,
     create_immunity_effect,
     create_key,
@@ -39,10 +38,6 @@ from grid_play.config.sources.level_editor import ToolSpec, make_level_editor_so
 
 def agent_params() -> dict[str, Any]:
     return {"health": int(st.number_input("Health", 1, 99, 5, key="agent_health"))}
-
-
-def floor_params() -> dict[str, Any]:
-    return {"cost": int(st.number_input("Move Cost", 1, 99, 1, key="floor_cost"))}
 
 
 def coin_params() -> dict[str, Any]:
@@ -77,7 +72,7 @@ def moving_params(prefix: str) -> dict[str, Any]:
         direction = direction_label.lower()
     on_collision_label = st.selectbox(
         "On Collision",
-        ["Stop", "Bounce", "Destroy"],
+        ["Stop", "Bounce"],
         index=1,
         key=f"{prefix}_on_collision",
     )
@@ -128,13 +123,6 @@ def limit_params(prefix: str) -> dict[str, Any]:
 # -----------------------
 
 PALETTE: dict[str, ToolSpec] = {
-    "floor": ToolSpec(
-        label="Floor",
-        icon="⬜",
-        factory_fn=create_floor,
-        param_map=lambda p: {"cost_amount": int(p.get("cost", 1))},
-        param_ui=floor_params,
-    ),
     "wall": ToolSpec(
         label="Wall",
         icon="🟫",
@@ -267,9 +255,9 @@ PALETTE: dict[str, ToolSpec] = {
     "erase": ToolSpec(
         label="Eraser",
         icon="␡",
-        factory_fn=create_floor,
-        param_map=lambda p: {"cost_amount": 1},
-        description="Reset cell to floor-only.",
+        factory_fn=None,
+        param_map=lambda p: {},
+        description="Reset cell.",
     ),
 }
 

@@ -13,6 +13,11 @@ from grid_universe.renderer.image import DEFAULT_IMAGE_MAP, ImageMap
 from grid_play.config.sources.base import BaseConfig, LevelSource, register_level_source
 from grid_play.config.shared_ui import seed_section, image_map_section
 
+DEFAULT_CIPHER_OBJECTIVE_PAIRS: list[tuple[str, str]] = [
+    ("cipher1", "collect_exit"),
+    ("cipher2", "exit"),
+]
+
 
 # -----------------------------
 # Config Dataclass
@@ -53,10 +58,7 @@ def build_cipher_config(current: object) -> CipherConfig:
     st.caption(
         "Optional (cipher,objective) lines: TOKEN,OBJECTIVE_NAME (objective must exist in registry)."
     )
-    existing_pairs = base.cipher_objective_pairs or [
-        ("cipher1", "default"),
-        ("cipher2", "exit"),
-    ]
+    existing_pairs = base.cipher_objective_pairs or DEFAULT_CIPHER_OBJECTIVE_PAIRS
     default_text = "\n".join([f"{c},{o}" for c, o in existing_pairs])
     raw = st.text_area(
         "Cipher/Objective Pairs",
@@ -119,7 +121,9 @@ def _make_env(cfg: CipherConfig) -> GridUniverseEnv:
 
 
 def _default_cipher_config() -> CipherConfig:
-    return CipherConfig(None, 9, 7, 1, DEFAULT_IMAGE_MAP, [])
+    return CipherConfig(
+        None, 9, 7, 1, DEFAULT_IMAGE_MAP, DEFAULT_CIPHER_OBJECTIVE_PAIRS
+    )
 
 
 register_level_source(

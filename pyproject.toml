@@ -4,13 +4,12 @@ version = "0.1.0"
 description = "A web-based playground for building, configuring, and playing Grid Universe games"
 authors = [{ name = "Muhammad Rizki Maulana", email = "rizki@rizkiarm.com" }]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = { file = "LICENSE" }
 
 dependencies = [
     "grid-universe @ git+https://github.com/grid-universe/grid-universe.git",
-    "streamlit>=1.45.0",
-    "pyrsistent>=0.20.0"
+    "streamlit>=1.45.0"
 ]
 
 [project.optional-dependencies]
@@ -28,6 +27,7 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 addopts = "--cov=grid_play --cov-report=term-missing"
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.coverage.run]
 branch = true
@@ -39,10 +39,10 @@ skip_covered = true
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py313"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 files = "grid_play"
 strict = true
 pretty = true

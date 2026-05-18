@@ -61,7 +61,7 @@ ParamUI = Callable[[], EditorParams]
 class ToolSpec:
     label: str
     icon: str
-    factory_fn: Callable[..., BaseEntity]
+    factory_fn: Callable[..., BaseEntity] | None
     param_map: Callable[[dict[str, Any]], dict[str, Any]]
     param_ui: ParamUI | None = None
     description: str | None = None
@@ -69,9 +69,7 @@ class ToolSpec:
 
 def _default_editor_config() -> EditorConfig:
     width, height = 9, 7
-    base_col: tuple[tuple[EditorToken, ...], ...] = tuple(
-        (EditorToken(type="floor", params={"cost": 1}),) for _ in range(height)
-    )
+    base_col: tuple[tuple[EditorToken, ...], ...] = tuple(() for _ in range(height))
     snapshot: TokenGridSnapshot = tuple(base_col for _ in range(width))
     # Placeholders; caller must provide registries and image maps via build_editor_config
     return EditorConfig(
@@ -89,31 +87,16 @@ def _default_editor_config() -> EditorConfig:
 def _ensure_working_grid(width: int, height: int) -> WorkingGrid:
     key = "editor_working_grid"
     if key not in st.session_state:
-        st.session_state[key] = [
-            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(height)]
-            for _ in range(width)
-        ]
+        st.session_state[key] = [[[] for _ in range(height)] for _ in range(width)]
     grid: WorkingGrid = st.session_state[key]
     if len(grid) != width or len(grid[0]) != height:
-        new_grid: WorkingGrid = [
-            [[EditorToken(type="floor", params={"cost": 1})] for _ in range(height)]
-            for _ in range(width)
-        ]
+        new_grid: WorkingGrid = [[[] for _ in range(height)] for _ in range(width)]
         for xx in range(min(width, len(grid))):
             for yy in range(min(height, len(grid[0]))):
                 new_grid[xx][yy] = list(grid[xx][yy])
         st.session_state[key] = new_grid
         grid = new_grid
     return grid
-
-
-def _ensure_floor(cell: WorkingCell) -> EditorToken:
-    for t in cell:
-        if t.type == "floor":
-            return t
-    floor = EditorToken(type="floor", params={"cost": 1})
-    cell.insert(0, floor)
-    return floor
 
 
 def place_tool(
@@ -123,27 +106,14 @@ def place_tool(
     grid: WorkingGrid,
     params: EditorParams | None = None,
 ) -> None:
-    cell = grid[x][y]
     p = params or {}
 
     if tool_key == "erase":
-        floor = _ensure_floor(cell)
-        grid[x][y] = [floor]
+        grid[x][y] = []
         return
 
-    if tool_key == "floor":
-        floor = _ensure_floor(cell)
-        if "cost" in p:
-            new_cost = int(p["cost"])
-            updated = EditorToken(type="floor", params={"cost": new_cost})
-            grid[x][y] = [updated] + [t for t in cell if t.type != "floor"]
-        else:
-            grid[x][y] = [floor] + [t for t in cell if t.type != "floor"]
-        return
-
-    floor = _ensure_floor(cell)
     tool = EditorToken(type=tool_key, params=dict(p))
-    grid[x][y] = [floor, tool]
+    grid[x][y] = [tool]
 
 
 def _pair_portals(grid: WorkingGrid) -> None:
@@ -187,7 +157,7 @@ def build_level_from_tokens(
                 if ttype == "erase":
                     continue
                 tspec = palette.get(ttype)
-                if tspec is None:
+                if tspec is None or tspec.factory_fn is None:
                     continue
                 kwargs = tspec.param_map(token.params)
                 ent = tspec.factory_fn(**kwargs)
@@ -280,31 +250,7 @@ def generate_code_from_palette(
             if not tokens:
                 continue
 
-            # Floor first (explicit or default)
-            floor_tok = next((t for t in tokens if t.type == "floor"), None)
-            floor_spec = palette.get("floor")
-            if floor_spec:
-                kwargs = floor_spec.param_map(
-                    floor_tok.params if floor_tok else {"cost": 1}
-                )
-                imp = _factory_import_line(floor_spec.factory_fn)
-                if imp:
-                    used_imports.append(imp)
-                args = ", ".join(
-                    f"{k}={_render_arg_value(v, used_imports)}"
-                    for k, v in kwargs.items()
-                )
-                expr = (
-                    f"{floor_spec.factory_fn.__name__}({args})"
-                    if args
-                    else f"{floor_spec.factory_fn.__name__}()"
-                )
-                placements.setdefault(expr, []).append((x, y))
-
-            # Other tokens
             for tok in tokens:
-                if tok.type == "floor":
-                    continue
                 if tok.type == "portal":
                     portal_positions.append((x, y))
                     continue
@@ -313,6 +259,8 @@ def generate_code_from_palette(
                     placements.setdefault(
                         f"# Unsupported tool '{tok.type}'", []
                     ).append((x, y))
+                    continue
+                if spec.factory_fn is None:
                     continue
                 kwargs = spec.param_map(tok.params)
                 imp = _factory_import_line(spec.factory_fn)
@@ -338,7 +286,7 @@ def generate_code_from_palette(
 
     portal_lines: list[str] = []
     portal_spec = palette.get("portal")
-    if portal_spec:
+    if portal_spec and portal_spec.factory_fn is not None:
         if len(portal_pairs) > 0 or len(unpaired) > 0:
             imp = _factory_import_line(portal_spec.factory_fn)
             if imp:
@@ -520,16 +468,13 @@ def build_editor_config(
     # Grid editing
     with middle:
         st.subheader("Grid")
-        floor_icon = _tool_icon(palette, "floor", "⬜")
+        empty_cell_icon = "⬜"
         for yy in range(height):
             cols = st.columns(width)
             for xx in range(width):
                 cell = grid[xx][yy]
-                icons = "".join(
-                    _tool_icon(palette, t.type) if t.type != "floor" else ""
-                    for t in cell
-                )
-                label = icons if icons else floor_icon
+                icons = "".join(_tool_icon(palette, t.type) for t in cell)
+                label = icons if icons else empty_cell_icon
                 if cols[xx].button(label, key=f"{name}_cell_{xx}_{yy}"):
                     place_tool(tool_key, xx, yy, grid, params)
                     if tool_key == "portal":

@@ -4,7 +4,6 @@ import os
 import streamlit as st
 
 from dataclasses import replace
-from pyrsistent import thaw
 
 # --------- Main App Imports ---------
 
@@ -19,6 +18,7 @@ from grid_play.components import (
     display_inventory,
     get_keyboard_action,
     do_action,
+    state_description_json,
 )
 from grid_play.ai import (
     show_ai_agent_dialog,
@@ -228,4 +228,4 @@ with tab_game:
 
 with tab_state:
     if env.state:
-        st.json(thaw(env.state.description), expanded=1)
+        st.json(state_description_json(env.state), expanded=1)
