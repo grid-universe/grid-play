@@ -52,6 +52,7 @@ class EditorConfig(BaseConfig):
     objective: BaseObjective
     render_image_map: ImageMap
     grid_tokens: TokenGridSnapshot
+    step_cost: int = 0
 
 
 ParamUI = Callable[[], EditorParams]
@@ -67,7 +68,7 @@ class ToolSpec:
     description: str | None = None
 
 
-def _default_editor_config() -> EditorConfig:
+def _default_editor_config(*, step_cost: int = 0) -> EditorConfig:
     width, height = 9, 7
     base_col: tuple[tuple[EditorToken, ...], ...] = tuple(() for _ in range(height))
     snapshot: TokenGridSnapshot = tuple(base_col for _ in range(width))
@@ -76,6 +77,7 @@ def _default_editor_config() -> EditorConfig:
         width=width,
         height=height,
         turn_limit=None,
+        step_cost=step_cost,
         movement=CardinalMovement(),
         objective=ExitObjective(),
         seed=None,
@@ -146,6 +148,7 @@ def build_level_from_tokens(
         movement=cfg.movement,
         objective=cfg.objective,
         seed=cfg.seed,
+        step_cost=cfg.step_cost,
         turn_limit=cfg.turn_limit,
     )
     portal_specs: dict[tuple[int, int], BaseEntity] = {}
@@ -331,7 +334,7 @@ def generate_code_from_palette(
         f"    gridstate = {gridstate_class}(width={cfg.width}, height={cfg.height}, "
         f"movement={movements_registry}[{repr(move_key)}], "
         f"objective={objectives_registry}[{repr(obj_key)}], "
-        f"seed={repr(cfg.seed)}{tl_arg})"
+        f"seed={repr(cfg.seed)}, step_cost={cfg.step_cost}{tl_arg})"
     )
     a("")
     for expr, positions in sorted(placements.items(), key=lambda kv: kv[0]):
@@ -375,7 +378,7 @@ def build_editor_config(
     st.info(name, icon="🛠️")
 
     # Top config
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
     with c1:
         width = int(st.number_input("Width", 3, 50, base.width, key=f"{name}_width"))
     with c2:
@@ -396,6 +399,16 @@ def build_editor_config(
             )
         )
         turn_limit = tl_in if tl_in > 0 else None
+    with c5:
+        step_cost = int(
+            st.number_input(
+                "Step cost",
+                0,
+                None,
+                base.step_cost,
+                key=f"{name}_step_cost",
+            )
+        )
 
     # Movement / Objective
     move_names = list(movement_registry.keys())
@@ -488,6 +501,7 @@ def build_editor_config(
             width=width,
             height=height,
             turn_limit=turn_limit,
+            step_cost=step_cost,
             movement=movement,
             objective=objective,
             seed=seed,
@@ -533,6 +547,7 @@ def build_editor_config(
         width=width,
         height=height,
         turn_limit=turn_limit,
+        step_cost=step_cost,
         movement=movement,
         objective=objective,
         seed=seed,
@@ -571,12 +586,13 @@ def make_level_editor_source(
     movement_registry: Mapping[str, BaseMovement],
     objective_registry: Mapping[str, BaseObjective],
     asset_root_resolver: Callable[[ImageMap], str],
+    step_cost: int = 0,
     gridstate_import_line: str = GRIDSTATE_IMPORT_LINE,
     movements_import_line: str = MOVEMENTS_IMPORT_LINE,
     objectives_import_line: str = OBJECTIVES_IMPORT_LINE,
 ) -> LevelSource:
     def _initial_config() -> EditorConfig:
-        return _default_editor_config()
+        return _default_editor_config(step_cost=step_cost)
 
     def _build_config(current: object) -> EditorConfig:
         return build_editor_config(
