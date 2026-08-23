@@ -322,6 +322,8 @@ def _enemies_section(cfg: MazeConfig) -> list[EnemySpec]:
                 index=list(MovementType).index(move_type_default),
                 key=f"enemy_movement_type_{idx}",
             )
+            if movement_type is None:
+                movement_type = MovementType.STATIC
         with c4:
             if movement_type == MovementType.STATIC:
                 st.markdown("Static")
